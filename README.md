@@ -20,6 +20,12 @@ did is included here, unchanged, alongside the new artist bios.
 >   at my direction.
 >   I've used them on my own iPod Classic, but they haven't been tested more
 >   widely.
+> - **Bios need a custom PodBox build.** The **Artist Bio** screen that shows
+>   the bios isn't in PodBox's official releases yet; it has been proposed to
+>   the PodBox developer. Until it is, seeing bios on the iPod means building
+>   PodBox from source with the Artist Bio changes added. On an official
+>   PodBox build the bios step is skipped automatically, and everything else
+>   (artist photos, database and art cache) works as normal.
 > - **Use at your own risk.** The tool writes picture files into your iPod's
 >   music folders and updates its database. Keep a backup of your music.
 
@@ -243,7 +249,9 @@ artist up again, run `python artist_bios.py "G:\Music" --refresh`, or for one
 artist add `--only "Artist Name"`. `--retry-not-found` looks again for the
 artists on the no-bio list.
 
-The Artist Bio screen needs a PodBox build that includes it. The `.bat`
+The Artist Bio screen isn't in PodBox's official releases yet, so to see the
+bios you need a PodBox build compiled from source with the Artist Bio changes
+added. The `.bat`
 checks the iPod and skips this step when its PodBox doesn't have the screen.
 To change that, edit the `BIOS` line near the top of the `.bat`: `yes` writes
 bios whatever the firmware, `no` never does.

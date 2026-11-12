@@ -6,6 +6,14 @@ This carries on from [ipod-artist-photos](https://github.com/Polytracker/ipod-ar
 which only did artist photos and is no longer being developed. Everything it
 did is included here, unchanged, alongside the new artist bios.
 
+> [!WARNING]
+> **Still in development, not ready for public use yet.** This is an
+> experimental tool I'm testing on my own iPod. Things may change or break
+> between versions, and the Artist Bio screen it writes for isn't available
+> in any official PodBox release. If you just want artist photos, use
+> [ipod-artist-photos](https://github.com/Polytracker/ipod-artist-photos)
+> instead.
+
 > **Please read first**
 >
 > - **Forked from PodBox.** `art_fetch.py` is a modified copy of the artwork

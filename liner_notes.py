@@ -275,8 +275,6 @@ def discogs_notes(info, session, token):
         return notes if len(notes) > 80 else ""
     return ""
 
-_mb_failures = [0]        # MusicBrainz refusals in a row
-
 def find_notes(info, who, session, args):
     """(paragraphs, source, release group) -- paragraphs may be empty, leaving the
     facts line. `who` is the artist's saved IDs from artist_bios.py."""
@@ -287,14 +285,11 @@ def find_notes(info, who, session, args):
             sure = bool(q)
         except Exception as e:
             print(f"     wikidata: {e}")
-    if not title and _mb_failures[0] < 2:
+    if not title:
         try:
             rg = release_group(info, who.get("mbid"), session)
-            _mb_failures[0] = 0
         except Exception as e:
-            _mb_failures[0] += 1
-            print(f"     musicbrainz unavailable ({e})"
-                  + ("; not asking it again this run" if _mb_failures[0] >= 2 else ""))
+            print(f"     musicbrainz unavailable ({e})")
     if not title:
         try:
             title, sure = wiki_title(info, rg, session)

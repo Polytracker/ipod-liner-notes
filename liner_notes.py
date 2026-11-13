@@ -60,34 +60,36 @@ def tag(f, *keys):
             return str(v[0] if isinstance(v, list) else v).strip()
     return ""
 
+def read_tags(p):
+    try:
+        return mutagen.File(p, easy=True)
+    except Exception:
+        return None
+
 def album_info(folder, artist):
-    """Album, album artist, year, label, track count and minutes, from the files.
-    None for a folder that isn't one album (a Singles folder, mixed album tags)."""
+    """Album, album artist, year, label and track count, from the first and last
+    track's tags -- reading every file on the iPod's disk takes minutes. None for
+    a folder that isn't one album (a Singles folder, mixed album tags)."""
     tracks = [p for p in sorted(folder.iterdir()) if p.suffix.lower() in ab.AUDIO]
     if not tracks or folder.name.lower() in SINGLES:
         return None
-    albums, info, seconds = set(), {}, 0.0
-    for p in tracks:
-        try:
-            f = mutagen.File(p, easy=True)
-        except Exception:
-            f = None
-        if f is None:
-            continue
-        seconds += getattr(f.info, "length", 0) or 0
-        a = tag(f, "album")
-        if a:
-            albums.add(a.casefold())
-        if not info:
-            info = {"album": a, "artist": tag(f, "albumartist", "album artist") or tag(f, "artist"),
-                    "year": ab.year(tag(f, "date", "originaldate", "year")),
-                    "label": tag(f, "organization", "label", "publisher")}
-    if len(albums) != 1 or not info.get("album"):
+    first, last = read_tags(tracks[0]), read_tags(tracks[-1])
+    album = tag(first, "album")
+    if not album or (last is not None and tag(last, "album").casefold() != album.casefold()):
         return None
-    info["artist"] = info["artist"] or artist
-    info["tracks"] = len(tracks)
+    return {"album": album,
+            "artist": tag(first, "albumartist", "album artist") or tag(first, "artist") or artist,
+            "year": ab.year(tag(first, "date", "originaldate", "year")),
+            "label": tag(first, "organization", "label", "publisher"),
+            "tracks": len(tracks), "minutes": None, "files": tracks}
+
+def add_minutes(info):
+    """The album's length, reading every track: only when its notes are fetched."""
+    seconds = 0.0
+    for p in info["files"]:
+        f = read_tags(p)
+        seconds += getattr(getattr(f, "info", None), "length", 0) or 0
     info["minutes"] = round(seconds / 60)
-    return info
 
 def facts_line(info, mb_year=None, mb_label=None):
     n = info["tracks"]
@@ -329,10 +331,13 @@ def main(argv=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     CACHE.mkdir(parents=True, exist_ok=True)
     print(f"Writing liner notes to {out_dir}")
+    print("Reading the album folders...")
 
     only = {ab.norm(o) for o in args.only}
     work = []
     for artist, folders in sorted(ab.scan_library(music).items(), key=lambda kv: kv[0].casefold()):
+        if only and not any(o.startswith(ab.norm(artist)) for o in only):
+            continue
         for folder in sorted(folders):
             info = album_info(folder, artist)
             if not info:
@@ -357,6 +362,7 @@ def main(argv=None):
                 if meta is None or args.refresh or due(meta, args.refresh_after):
                     fresh = True
                     print(f"{i:4d}/{len(work)} {key}")
+                    add_minutes(info)
                     paras, source, rg = find_notes(info, artist_mbid(artist), session, args)
                     mb_year = ((rg or {}).get("first-release-date") or "")[:4] or None
                     new = {"key": key, "facts": facts_line(info, mb_year), "notes": "\n".join(paras),

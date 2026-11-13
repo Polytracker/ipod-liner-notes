@@ -1,4 +1,4 @@
-# Pod Liner Notes
+# iPod Liner Notes
 
 Artist photos, artist bios and album liner notes for an iPod running PodBox,
 in one click.
@@ -25,7 +25,7 @@ did is included here, unchanged, alongside the new artist bios and liner notes.
 >   here, not to PodBox.
 > - **Written with AI.** The changes to `art_fetch.py`, and the new
 >   `artist_fallback.py`, `artist_bios.py`, `liner_notes.py` and
->   `Pod Liner Notes.bat`,
+>   `iPod Liner Notes.bat`,
 >   were written with the help of Claude, an AI assistant made by Anthropic,
 >   at my direction.
 >   I've used them on my own iPod Classic, but they haven't been tested more
@@ -108,13 +108,13 @@ Wait for it to finish, then close the window.
    **Download ZIP**.
 2. Open your Downloads folder, right-click the ZIP and choose
    **Extract All**. Put it somewhere permanent, for example
-   `Documents\Pod Liner Notes`.
+   `Documents\iPod Liner Notes`.
 
 You should now have these files in that folder:
 
 | File | What it is |
 |---|---|
-| `Pod Liner Notes.bat` | The one you double-click. It runs everything below in order. |
+| `iPod Liner Notes.bat` | The one you double-click. It runs everything below in order. |
 | `art_fetch.py` | Finds artist photos online. |
 | `artist_fallback.py` | Uses an album cover when no photo can be found. |
 | `artist_bios.py` | Writes each artist's bio and banner for the Artist Bio screen. |
@@ -155,7 +155,7 @@ The tool assumes your iPod shows up as drive **G:** with its music in
 
 1. Plug in the iPod and look in **File Explorer > This PC** to see its drive
    letter.
-2. Right-click `Pod Liner Notes.bat` and choose **Edit** (on
+2. Right-click `iPod Liner Notes.bat` and choose **Edit** (on
    Windows 11, **Show more options > Edit**).
 3. Near the top, change these two lines to match, for example for drive `E:`:
 
@@ -171,7 +171,7 @@ The tool assumes your iPod shows up as drive **G:** with its music in
 ## Using it
 
 1. Plug in the iPod and wait for it to appear in File Explorer.
-2. Double-click **Pod Liner Notes.bat**.
+2. Double-click **iPod Liner Notes.bat**.
 3. Let it run. The first time takes a while, roughly a few seconds per
    artist. You can press **Ctrl+C** to stop at any point; next time it carries
    on where it left off.
@@ -362,7 +362,7 @@ screen. See **Artist bios** above.
 **`liner_notes.py`** (new): liner notes and cover banners for PodBox's Liner
 Notes screen. See **Liner notes** above.
 
-**`Pod Liner Notes.bat`** (new): runs everything above in order,
+**`iPod Liner Notes.bat`** (new): runs everything above in order,
 then updates the database and art cache with PodBox's tools.
 
 ---

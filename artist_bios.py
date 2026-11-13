@@ -53,7 +53,7 @@ except ModuleNotFoundError as e:
 MODEL_URL = ("https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/"
              "face_detection_yunet/face_detection_yunet_2023mar.onnx")
 AUDIODB = "https://www.theaudiodb.com/api/v1/json/123/"   # free public key, 30 requests/min
-UA = {"User-Agent": "pod-liner-notes/0.1 (https://github.com/Polytracker/pod-liner-notes)"}
+UA = {"User-Agent": "ipod-liner-notes/0.1 (https://github.com/Polytracker/ipod-liner-notes)"}
 
 # The Artist Bio screen: 320 wide, a fixed-height banner, the name over its foot
 W = 320
@@ -292,7 +292,7 @@ def lastfm_bio(artist, session, key, mbid=None):
     bio = "\n".join(p for p in paras if p)
     return bio if len(bio) > 40 else None
 
-WIKI_UA = {"User-Agent": "pod-liner-notes/0.1 (https://github.com/Polytracker/pod-liner-notes) bio_test"}
+WIKI_UA = {"User-Agent": "ipod-liner-notes/0.1 (https://github.com/Polytracker/ipod-liner-notes) bio_test"}
 
 def wiki_get(session, url, params=None):
     """Wikipedia request with its preferred User-Agent, a pause, and back-off on 429."""
@@ -360,7 +360,7 @@ def album_cover(folders):
         pass
     return None, None
 
-MB_UA = {"User-Agent": "pod-liner-notes/0.1 ( https://github.com/Polytracker/pod-liner-notes )",
+MB_UA = {"User-Agent": "ipod-liner-notes/0.1 ( https://github.com/Polytracker/ipod-liner-notes )",
          "Accept": "application/json"}
 
 _mb_last = [0.0]

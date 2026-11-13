@@ -33,7 +33,7 @@ Setup (once):
 """
 from __future__ import annotations
 
-import argparse, difflib, hashlib, io, json, math, os, re, sys, time, urllib.parse
+import argparse, difflib, hashlib, io, json, math, os, random, re, sys, time, unicodedata, urllib.parse
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -44,6 +44,7 @@ try:
     import cv2, numpy as np, requests
     from PIL import Image, ImageOps
     import art_fetch as af
+    import translate as tr
 except ModuleNotFoundError as e:
     print(f"Missing something: {e}")
     print("Put this file next to art_fetch.py, and run: "
@@ -75,6 +76,15 @@ def model_path():
         p.write_bytes(r.content)
     return str(p)
 
+_detectors = {}
+
+def face_detector(threshold):
+    """One YuNet detector per threshold for the whole run: loading the model
+    for every photo costs more than finding the faces."""
+    if threshold not in _detectors:
+        _detectors[threshold] = cv2.FaceDetectorYN.create(model_path(), "", (320, 320), threshold)
+    return _detectors[threshold]
+
 def find_faces(img, threshold=0.5):
     """Faces as (x, y, w, h, eye_y, score) in the image's own pixels.
     Background faces (crowds, posters) much smaller than the main one are dropped."""
@@ -84,7 +94,8 @@ def find_faces(img, threshold=0.5):
     if max(w, h) * s > 2400:                  # very large photos: shrink for speed
         s = 2400 / max(w, h)
     sw, sh = int(w * s), int(h * s)
-    det = cv2.FaceDetectorYN.create(model_path(), "", (sw, sh), threshold)
+    det = face_detector(threshold)
+    det.setInputSize((sw, sh))
     _, fs = det.detect(cv2.resize(bgr, (sw, sh)))
     if fs is None:
         return []
@@ -161,7 +172,8 @@ def make_banner(img, faces, centre=False):
 def clean_bio(text):
     """Tidy a bio for the iPod: drop bracketed native-script names and pronunciation
     guides, e.g. "Kenji Kawai (川井 憲次, Kawai Kenji)", and stray quotes."""
-    text = re.sub(r"\s+", " ", (text or "")).strip()
+    text = "".join(c for c in (text or "") if c in "\n\t" or unicodedata.category(c) != "Cf")
+    text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"\(\s*[;,]\s*", "(", text)       # "(; born 1952)" -> "(born 1952)"
     text = re.sub(r"\(\s*\)", "", text)
     def drop(m):
@@ -175,11 +187,35 @@ def clean_bio(text):
     text = re.sub(r"\s*\(([^()]*)\)", drop, text)
     text = re.sub(r"[\u3000-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF]+[,、]?\s*", "", text)
     text = re.sub(r"\s+([,.;:])", r"\1", text)
-    return text.strip(" '\"‘’“”")
+    return strip_unpaired_quotes(text.strip())
+
+def strip_unpaired_quotes(text):
+    """A quote mark at either end is removed only when it has no partner, so
+    '"Both Sides, Now" is a song' and a paragraph ending in a quotation keep
+    theirs."""
+    if text.count('"') % 2:
+        if text.startswith('"') and not re.match(r'"[^"]+"', text):
+            text = text[1:]
+        elif text.endswith('"') and not re.search(r'"[^"]+"$', text):
+            text = text[:-1]
+    for o, c in (("“", "”"), ("‘", "’")):
+        if text.startswith(o) and c not in text:
+            text = text[1:]
+        if text.endswith(c) and o not in text and c != "’":
+            text = text[:-1]
+    return text.strip()
+
+def drop_colon_ending(p):
+    """A paragraph that ends "...stating:" lost the quotation or list that
+    followed it; its last sentence goes too."""
+    if not p.endswith(":"):
+        return p
+    cut = max(p.rfind(". ", 0, len(p) - 1), p.rfind("! ", 0, len(p) - 1), p.rfind("? ", 0, len(p) - 1))
+    return p[:cut + 1] if cut > 0 else ""
 
 def trim_bio(text, limit=BIO_CHARS):
     """Clean each paragraph and keep the paragraph breaks. No cut unless a limit is set."""
-    paras = [clean_bio(p) for p in re.split(r"\n\s*\n|\n", text or "")]
+    paras = [drop_colon_ending(clean_bio(p)) for p in re.split(r"\n\s*\n|\n", text or "")]
     text = "\n".join(p for p in paras if p)
     if not limit or len(text) <= limit:
         return text
@@ -238,8 +274,58 @@ def mb_dates(mb):
 def join_subtitle(*bits):
     return " · ".join(b for b in bits if b)
 
+NAME_BYTES = 230      # the iPod opens no file whose name, ".txt" included, passes 260 bytes
+
+def ignored_by_ipod(c):
+    """Characters PodBox leaves out when it matches a file name to a tag:
+    accent marks, punctuation, symbols and variation selectors."""
+    o = ord(c)
+    return (0x80 <= o < 0xC0 or 0x300 <= o <= 0x36F or 0x2000 <= o <= 0x2BFF
+            or 0x3000 <= o <= 0x303F or 0xFE00 <= o <= 0xFE0F)
+
 def safe_name(s):
-    return re.sub(r'[<>:"/\\|?*]', "_", s).strip(". ")
+    """The file name for an artist or album: characters Windows forbids become
+    "_". A name too long for the iPod loses the characters the iPod ignores
+    when matching, so it still opens; None if it is still too long."""
+    name = re.sub(r'[<>:"/\\|?*]', "_", s).strip(". ")
+    if len(name.encode("utf-8")) > NAME_BYTES:
+        name = re.sub(r"\s+", " ", "".join(c for c in name if not ignored_by_ipod(c))).strip(". ")
+    return name if len(name.encode("utf-8")) <= NAME_BYTES else None
+
+NET_ERRORS = (requests.RequestException, ValueError, KeyError)
+
+def problem(name, e):
+    """How a failed lookup is reported: a site that is down or answered oddly,
+    or a fault in this script, which should be reported rather than shrugged off."""
+    if isinstance(e, NET_ERRORS):
+        print(f"     {name}: {e}")
+    else:
+        print(f"     {name}: unexpected {type(e).__name__}: {e} (a fault in this script)")
+
+def save_json(path, data):
+    atomic_write(path, json.dumps(data, ensure_ascii=False, indent=1).encode("utf-8"))
+
+def load_json(path):
+    """A saved record, or None if there is none or it can't be read (a run
+    stopped while writing it)."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+def atomic_write(path, data):
+    """Written beside the target and renamed over it, so a stopped run or an
+    unplugged iPod leaves the old file or none, never half of one."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 MUSIC_WORDS = ("band", "musician", "singer", "rapper", "group", "duo", "trio", "producer",
                "songwriter", "composer", "dj", "guitarist", "pianist", "drummer", "record",
@@ -280,8 +366,10 @@ def discogs_artist(artist, session, token):
         return (imgs[0]["uri"] if imgs else None), strip_markup(d.get("profile"))
     return None, None
 
-def lastfm_bio(artist, session, key, mbid=None):
+def lastfm_bio(artist, session, key, mbid=None, lang=None):
     params = {"method": "artist.getinfo", "api_key": key, "format": "json"}
+    if lang:
+        params["lang"] = lang
     params.update({"mbid": mbid} if mbid else {"artist": artist, "autocorrect": 1})
     r = session.get("https://ws.audioscrobbler.com/2.0/", params=params, headers=UA, timeout=20)
     r.raise_for_status()
@@ -307,7 +395,7 @@ def wiki_get(session, url, params=None):
     return r
 
 def wikipedia(artist, session):
-    """Returns (photo_url, extract) for the artist's English Wikipedia page, or (None, None).
+    """Returns (photo_url, extract, title) for the artist's English Wikipedia page, or (None, None, None).
     Tries likely page titles directly - usually one or two requests per artist."""
     for suffix in ("", " (band)", " (musician)", " (singer)", " (rapper)", " (group)"):
         title = (artist + suffix).replace(" ", "_")
@@ -320,8 +408,9 @@ def wikipedia(artist, session):
         desc = (p.get("description") or "").lower()
         if p.get("type") == "disambiguation" or not any(w in desc for w in MUSIC_WORDS):
             continue                                   # e.g. "Dijon": "City in Côte-d'Or, France"
-        return (p.get("originalimage") or {}).get("source"), (wiki_summary(p.get("title") or title, session) or p.get("extract"))
-    return None, None
+        page = p.get("title") or title.replace("_", " ")
+        return (p.get("originalimage") or {}).get("source"), (wiki_summary(page, session) or p.get("extract")), page
+    return None, None, None
 
 COVER_NAMES = ("cover", "folder", "front", "albumart")
 
@@ -380,7 +469,9 @@ def mb_get(session, url, params=None):
             break
         _mb_pace[0] = min(4.0, _mb_pace[0] + 0.8)       # stay slower from now on
         pause = int(r.headers.get("Retry-After", "0") or 0) or 2 ** (attempt + 1)
-        print(f"     musicbrainz busy, waiting {pause} s")
+        pause += random.uniform(0, 1)                   # jitter, so retries don't line up
+        why = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r.text or ""))[:90].strip()
+        print(f"     musicbrainz busy, waiting {pause:.0f} s" + (f" ({why})" if why else ""))
         time.sleep(pause)
     r.raise_for_status()
     return r.json()
@@ -506,11 +597,16 @@ def wd_year(ent, prop):
             return year(v["time"].lstrip("+"))
     return ""
 
-def wd_entities(ids, session, props="claims|sitelinks|labels|aliases|descriptions"):
+def wd_entities(ids, session, props="claims|sitelinks|labels|aliases|descriptions", sites="enwiki"):
+    """Wikidata items by ID; sitelinks for English Wikipedia only unless
+    `sites` is None (every language)."""
     if not ids:
         return {}
-    r = wiki_get(session, WD_API, {"action": "wbgetentities", "ids": "|".join(ids), "props": props,
-                                   "languages": "en|mul", "sitefilter": "enwiki", "format": "json"})
+    params = {"action": "wbgetentities", "ids": "|".join(ids), "props": props,
+              "languages": "en|mul", "format": "json"}
+    if sites:
+        params["sitefilter"] = sites
+    r = wiki_get(session, WD_API, params)
     r.raise_for_status()
     return r.json().get("entities") or {}
 
@@ -625,6 +721,40 @@ def identify(artist, session, albums=(), known=None):
         return wd_record(e, k, session, False, "wikidata guess")
     return None
 
+def wiki_intro(lang, title, session):
+    """The introduction of an article on another language's Wikipedia."""
+    r = wiki_get(session, f"https://{lang}.wikipedia.org/w/api.php",
+                 {"action": "query", "prop": "extracts", "exintro": 1, "explaintext": 1,
+                  "redirects": 1, "format": "json", "formatversion": 2, "titles": title})
+    if not r.ok:
+        return ""
+    pages = (r.json().get("query") or {}).get("pages") or []
+    return ((pages[0] if pages else {}).get("extract") or "").strip()
+
+def foreign_bio(artist, who, session, args):
+    """(English bio, source, language) for an artist who doesn't work in
+    English: their article in their own language's Wikipedia, else Last.fm's
+    notes in that language, translated. None for anyone else."""
+    ent = wd_entities([who["wikidata"]], session, props="claims|sitelinks", sites=None).get(who["wikidata"]) or {}
+    lang = tr.artist_language(ent)
+    if not lang:
+        return None
+    title = ((ent.get("sitelinks") or {}).get(f"{lang}wiki") or {}).get("title")
+    tries = []
+    if title:
+        tries.append(("wikipedia", lambda: wiki_intro(lang, title, session)))
+    if args.lastfm_key:
+        tries.append(("lastfm", lambda: lastfm_bio(artist, session, args.lastfm_key, who.get("id"), lang=lang)))
+    for source, fetch in tries:
+        text = fetch()
+        paras = [p.strip() for p in re.split(r"\n+", text or "") if p.strip()]
+        if not paras or not tr.needs_translation(" ".join(paras), lang):
+            continue
+        english = args.translator.translate(paras, lang)
+        if english:
+            return "\n".join(english), source, lang
+    return None
+
 LONG_BIO = 3000      # above this, compare with the other sources; switch only if one is 25%+ shorter
 
 MIN_BIO = 400        # "proper": shorter than this counts as a stub and can't win the comparison
@@ -645,7 +775,7 @@ def other_bios(artist, session, args, mb, used):
     if mb and mb.get("enwiki"):
         add("wikipedia", lambda: wiki_summary(mb["enwiki"], session))
     if not (mb and mb.get("verified")):
-        add("wikipedia by title", lambda: (wikipedia(artist, session) or (None, None))[1])
+        add("wikipedia by title", lambda: wikipedia(artist, session)[1])
     if args.lastfm_key:
         add("lastfm", lambda: lastfm_bio(artist, session, args.lastfm_key, mb and mb.get("id")))
     if args.discogs_token:
@@ -664,6 +794,7 @@ def find_bio(artist, session, args, albums=(), facts=None):
         if best[1] != src and len(trim_bio(best[0])) <= 0.75 * len(trim_bio(bio)):
             print(f"     long bio: {src} {len(bio):,} -> {best[1]} {len(best[0]):,}")
             bio, src = best
+            facts["title"] = (facts.get("mb") or {}).get("enwiki") if src == "wikipedia" else None
     return bio, src, sure
 
 def find_bio_first(artist, session, args, albums=(), facts=None):
@@ -675,7 +806,7 @@ def find_bio_first(artist, session, args, albums=(), facts=None):
         try:
             return fn()
         except Exception as e:
-            print(f"     {name}: {e}")
+            problem(name, e)
             return None
     facts = {} if facts is None else facts
     who = attempt("identify", lambda: identify(artist, session, albums, facts.get("known")))
@@ -684,10 +815,12 @@ def find_bio_first(artist, session, args, albums=(), facts=None):
     if who and who.get("enwiki"):
         b = attempt("wikipedia", lambda: wiki_summary(who["enwiki"], session))
         if b:
+            facts["title"] = who["enwiki"]
             return b, "wikipedia", sure
     if not sure:
         w = attempt("wikipedia", lambda: wikipedia(artist, session))
         if w and w[1]:
+            facts["title"] = w[2]
             return w[1], "wikipedia by title", False
     if args.lastfm_key:
         b = attempt("last.fm", lambda: lastfm_bio(artist, session, args.lastfm_key, who and who.get("id")))
@@ -697,6 +830,11 @@ def find_bio_first(artist, session, args, albums=(), facts=None):
         d = attempt("discogs", lambda: discogs_artist(artist, session, args.discogs_token))
         if d and d[1] and len(d[1]) > 40:
             return d[1], "discogs", False
+    if getattr(args, "translator", None) and who and who.get("wikidata"):
+        b = attempt("other languages", lambda: foreign_bio(artist, who, session, args))
+        if b:
+            facts["lang"] = b[2]
+            return b[0], b[1], sure
     line = summary_line(who, who and who.get("disambiguation"))
     if line:
         return line, "facts", sure
@@ -709,6 +847,7 @@ def remember(meta, who):
         meta["mbid"] = who.get("id") or meta.get("mbid")
         meta["identity_verified"] = bool(who.get("verified"))
         meta["identified_by"] = who.get("how", "")
+        meta["name"] = who.get("name") or meta.get("name")
 
 SKIP_FOLDERS = {"compilations", "various", "various artists", "soundtracks", "podcasts", "audiobooks"}
 
@@ -831,6 +970,7 @@ def fetch(artist, folders, session, args, known, want_photo=True):
     except Exception as e:
         print(f"     theaudiodb: {e}")
     meta = {"artist": artist, "bio": trim_bio(bio), "bio_source": src, "bio_verified": sure,
+            "bio_title": facts.get("title"), "bio_lang": facts.get("lang"),
             "subtitle": join_subtitle(genre_place(adb) if adb else mb_genre_place(who),
                                       mb_dates(who) or (audiodb_dates(adb) if adb else "")),
             "fetched": time.strftime("%Y-%m-%d")}
@@ -877,7 +1017,7 @@ def write_if_ours(path, data, meta, key):
     new = hashlib.sha1(data).hexdigest()
     if have == new:
         return "same"
-    path.write_bytes(data)
+    atomic_write(path, data)
     meta[key] = new
     return "written"
 
@@ -889,15 +1029,24 @@ def banner_bytes(photo, centre):
     banner.save(out, "JPEG", quality=90, progressive=False)   # baseline: quickest on the iPod
     return out.getvalue()
 
-def write_files(meta, out_dir, args):
-    """The .txt and .jpg for one artist. Returns how each went."""
-    name = safe_name(meta["artist"])
-    text = f"{meta['artist']}\n{meta.get('subtitle', '')}\n\n{meta['bio']}\n"
+BIO_FIELDS = ("bio", "bio_source", "bio_verified", "bio_title", "bio_lang")
+
+def has_bio(meta):
+    """A real bio, not just the line of facts written when nothing was found."""
+    return bool(meta and meta.get("bio") and meta.get("bio_source") != "facts")
+
+def write_files(meta, out_dir, args, name, rebuild):
+    """The .txt and .jpg for one artist. The banner is only made again when
+    `rebuild` (a new photo) or when the iPod has none. Returns how each went."""
+    credit = tr.credit(meta.get("bio_source") or "", meta.get("bio_lang"), meta.get("bio_title"))
+    text = f"{meta['artist']}\n{meta.get('subtitle', '')}\n\n{meta['bio']}\n" \
+        + (f"{credit}\n" if credit and meta["bio"] else "")
     res = [write_if_ours(out_dir / f"{name}.txt", text.encode("utf-8"), meta, "txt_sha1")]
     photo = CACHE / f"{name}.jpg"
-    if not args.no_banners and photo.exists():
+    jpg = out_dir / f"{name}.jpg"
+    if not args.no_banners and photo.exists() and (rebuild or not jpg.exists()):
         data = banner_bytes(photo.read_bytes(), meta.get("photo_source") == "album cover")
-        res.append(write_if_ours(out_dir / f"{name}.jpg", data, meta, "jpg_sha1"))
+        res.append(write_if_ours(jpg, data, meta, "jpg_sha1"))
     return res
 
 
@@ -953,6 +1102,16 @@ def batch_settings():
 
 
 # ---------------------------------------------------------------- main
+def retry_due(meta, days):
+    """Whether an artist nothing was found for is due another look."""
+    if not days:
+        return False
+    try:
+        age = time.time() - time.mktime(time.strptime(meta.get("fetched", ""), "%Y-%m-%d"))
+    except ValueError:
+        return True
+    return age > days * 86400
+
 def main(argv=None):
     conf = settings()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -960,8 +1119,10 @@ def main(argv=None):
     ap.add_argument("--ipod", help="the iPod's own folder (default: the folder holding the music folder)")
     ap.add_argument("--refresh", action="store_true", help="fetch every artist's bio and photo again")
     ap.add_argument("--retry-not-found", action="store_true",
-                    default=setting_on(conf, "recheck missing", True),
-                    help="look again for artists nothing was found for")
+                    help="look again now for every artist nothing was found for")
+    ap.add_argument("--retry-after", type=int, default=setting_days(conf, "recheck missing days", 30),
+                    metavar="DAYS", help="look again for an artist nothing was found for once this "
+                                         "many days have passed (default 30; 0 = never)")
     ap.add_argument("--refresh-after", type=int, default=setting_days(conf, "bio recheck days", 365),
                     metavar="DAYS",
                     help="fetch an active artist's bio again once it is this old (default 365; 0 = never). "
@@ -971,6 +1132,8 @@ def main(argv=None):
                     help="bios only, no photos")
     ap.add_argument("--discogs-token", default=conf.get("discogs token") or os.environ.get("DISCOGS_TOKEN"),
                     help="Discogs personal token, an extra source (or set DISCOGS_TOKEN)")
+    ap.add_argument("--deepl-key", default=conf.get("deepl key") or os.environ.get("DEEPL_KEY"),
+                    help="DeepL key, to translate bios of artists who don't work in English")
     ap.add_argument("--long-bio", type=int, default=LONG_BIO,
                     help=f"a bio longer than this is compared with the other sources, and a much "
                          f"shorter proper one used instead (default {LONG_BIO})")
@@ -987,25 +1150,31 @@ def main(argv=None):
     print(f"Writing bios to {out_dir}")
     if args.lastfm_key:
         print("Using the Last.fm key saved by art_fetch")
+    session = requests.Session()
+    args.translator = tr.Translator(args.deepl_key, CACHE.parent / "translations.json", session)
+    if args.translator:
+        print("Translating bios of artists who don't work in English, with DeepL")
 
     artists = scan_library(music)
     only = {norm(a) for a in args.only}
     names = sorted((a for a in artists if not only or norm(a) in only), key=str.casefold)
     print(f"{len(names)} artists\n")
 
-    session = requests.Session()
-    counts = {"written": 0, "same": 0, "kept": 0, "none": 0, "error": 0}
-    missing = []
+    counts = {"written": 0, "same": 0, "kept": 0, "error": 0}
     try:
         for i, artist in enumerate(names, 1):
             name = safe_name(artist)
+            if not name:
+                print(f"{i:4d}/{len(names)} {artist}\n     skipped: the name is too long for the iPod to open")
+                continue
             mp = CACHE / f"{name}.json"
-            meta = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else None
-            nothing = meta is not None and not (meta.get("bio") or meta.get("subtitle"))
+            meta = load_json(mp)
+            nothing = meta is not None and not has_bio(meta)
             due = meta is not None and not nothing and stale(meta, args.refresh_after)
-            need = (meta is None or args.refresh or (nothing and args.retry_not_found)
-                    or (not nothing and stale(meta, args.refresh_after))
+            need = (meta is None or args.refresh or due
+                    or (nothing and (args.retry_not_found or retry_due(meta, args.retry_after)))
                     or (not args.no_banners and meta.get("photo_source") is None))
+            new_photo = False
             try:
                 if need:
                     print(f"{i:4d}/{len(names)} {artist}")
@@ -1020,41 +1189,44 @@ def main(argv=None):
                         new.update({k: meta[k] for k in ("txt_sha1", "jpg_sha1") if k in meta})
                         if due and not args.refresh and same_bio(meta.get("bio"), new["bio"]):
                             # only small edits since: leave the file on the iPod alone
-                            new.update({k: meta[k] for k in ("bio", "bio_source", "bio_verified")})
-                        if meta.get("bio") and not new["bio"]:
+                            new.update({k: meta.get(k) for k in BIO_FIELDS})
+                        if has_bio(meta) and not has_bio(new):
                             # a source being down never costs a bio already found
-                            new.update({k: meta[k] for k in ("bio", "bio_source", "bio_verified")})
+                            new.update({k: meta.get(k) for k in BIO_FIELDS})
                         if meta.get("subtitle") and not new["subtitle"]:
                             new["subtitle"] = meta["subtitle"]
                         if meta.get("photo_source") and not photo:
                             new["photo_source"] = meta["photo_source"]
                     meta = new
                     if photo:
-                        (CACHE / f"{name}.jpg").write_bytes(photo)
-                    mp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+                        atomic_write(CACHE / f"{name}.jpg", photo)
+                        new_photo = True
+                    save_json(mp, meta)
                     print(f"     bio: {meta['bio_source'] or 'none'}"
                           f"{' (not confirmed)' if meta['bio'] and not meta['bio_verified'] else ''}, "
                           f"photo: {meta['photo_source'] or 'none'}")
                 if not (meta.get("bio") or meta.get("subtitle")):
-                    counts["none"] += 1
-                    missing.append(artist)
                     continue
-                res = write_files(meta, out_dir, args)
-                mp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+                res = write_files(meta, out_dir, args, name, new_photo)
+                save_json(mp, meta)
                 if "kept" in res:
                     print(f"     {artist}: kept your own {'bio' if res[0] == 'kept' else 'banner'}")
                 counts["written" if "written" in res else "kept" if "kept" in res else "same"] += 1
             except Exception as e:
                 counts["error"] += 1
-                print(f"  !! {artist}: {e}")
+                problem(artist, e)
     except KeyboardInterrupt:
         print("\nStopped. Run again to carry on where it left off.")
 
-    MISSING_LIST.write_text("\n".join(missing) + ("\n" if missing else ""), encoding="utf-8")
+    # the list covers every artist in scope, whether or not this run reached them
+    records = {a: load_json(CACHE / f"{safe_name(a)}.json") for a in names if safe_name(a)}
+    missing = [a for a, m in records.items() if m is not None and not has_bio(m)]
+    if not only:
+        atomic_write(MISSING_LIST, ("\n".join(missing) + ("\n" if missing else "")).encode("utf-8"))
     print(f"\nBios written or updated: {counts['written']}, unchanged: {counts['same']}, "
-          f"kept as you left them: {counts['kept']}, none found: {counts['none']}"
+          f"kept as you left them: {counts['kept']}, no bio: {len(missing)}"
           + (f", failed: {counts['error']}" if counts["error"] else ""))
-    if missing:
+    if missing and not only:
         print(f"Artists with no bio are listed in \"{MISSING_LIST.name}\".")
     return 0
 

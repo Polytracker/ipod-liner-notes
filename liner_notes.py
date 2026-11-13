@@ -9,13 +9,14 @@ Notes (hold Select on Now Playing, or on an album in Music) reads:
                                  critics' scores and where the text came from
   <Album Artist> - <Album>.jpg   the album's own cover, cropped to a banner
 
-Which album it is gets settled on MusicBrainz first, by the artist (using the
-ID artist_bios.py saved, when there is one) and the title, so another album
-of the same name can't slip in. The notes are that album's English Wikipedia
+Which album it is gets settled first, on Wikidata among the artist's albums,
+else on MusicBrainz by the artist's ID and the title, so another album of the
+same name can't slip in. The notes are that album's English Wikipedia
 introduction, the first paragraph of its critical reception and the scores
-from its ratings box. Without a Wikipedia article they come from Last.fm or
-Discogs, and failing those the page is just the facts line: year, label,
-tracks and length, read from your own files.
+from its ratings box. For an artist who doesn't work in English, the album's
+article in their own language is translated (with a DeepL key in the settings
+file). Failing those the notes come from Last.fm or Discogs, and failing
+those the page is just the facts line: year, label, tracks and length.
 
 Albums already done are skipped; one whose notes are over a year old is
 checked again and only rewritten if the text has really changed. A file you
@@ -29,7 +30,7 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse, html, json, os, re, sys, time
+import argparse, html, os, re, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -38,18 +39,32 @@ sys.path.insert(0, str(HERE))
 try:
     import requests, mutagen
     import artist_bios as ab
+    import translate as tr
 except ModuleNotFoundError as e:
     print(f"Missing something: {e}")
-    print("Put this file next to artist_bios.py and art_fetch.py, and run: "
+    print("Put this file next to artist_bios.py, translate.py and art_fetch.py, and run: "
           "pip install requests pillow mutagen opencv-python")
     sys.exit(1)
 
 CACHE = ab.CACHE.parent / "notes"
+FOLDERS = CACHE / "_folders.json"          # tags read from each folder, until it changes
 MISSING_LIST = HERE / "Albums without notes.txt"
-WIKI_API = "https://en.wikipedia.org/w/api.php"
+WIKI_API = "https://{}.wikipedia.org/w/api.php"
 MB = "https://musicbrainz.org/ws/2/"
 MAX_SCORES = 8
 SINGLES = {"singles", "single", "misc", "miscellaneous", "loose tracks"}
+OTHER_LANGS = ("ja", "ko", "zh", "fr", "es", "it", "de", "pt", "nl", "sv")
+
+# Wikidata's kinds of release. "album" covers studio, live, compilation and
+# soundtrack albums, EPs and demos; a song or single is accepted only for a
+# folder of three tracks or fewer.
+ALBUM_TYPES = {"Q482994", "Q208569", "Q209939", "Q222910", "Q4176708", "Q169930", "Q220935"}
+SINGLE_TYPES = {"Q134556", "Q7366", "Q105543609"}
+NOT_RELEASES = {"Q10590726", "Q193977", "Q55850593", "Q108352648", "Q108352496", "Q6128115"}
+                # video album, music video, music track, album/single release (editions), 7" single
+SINGLE_MAX_TRACKS = 3
+CRITIC = re.compile(r"\b(review|reviewer|critic|critics|critical|acclaim|praised|rated|rating|stars|"
+                    r"out of|score|Metacritic|wrote|called it|described|panned|favou?rable)\b", re.I)
 
 
 # ---------------------------------------------------------------- your files
@@ -66,35 +81,85 @@ def read_tags(p):
     except Exception:
         return None
 
-def album_info(folder, artist):
-    """Album, album artist, year, label and track count, from the first and last
-    track's tags -- reading every file on the iPod's disk takes minutes. None for
-    a folder that isn't one album (a Singles folder, mixed album tags)."""
-    tracks = [p for p in sorted(folder.iterdir()) if p.suffix.lower() in ab.AUDIO]
-    if not tracks or folder.name.lower() in SINGLES:
-        return None
-    first, last = read_tags(tracks[0]), read_tags(tracks[-1])
-    album = tag(first, "album")
-    if not album or (last is not None and tag(last, "album").casefold() != album.casefold()):
-        return None
-    return {"album": album,
-            "artist": tag(first, "albumartist", "album artist") or tag(first, "artist") or artist,
-            "year": ab.year(tag(first, "date", "originaldate", "year")),
-            "label": tag(first, "organization", "label", "publisher"),
-            "tracks": len(tracks), "minutes": None, "files": tracks}
+def album_tracks(folder):
+    """The album's tracks: the audio files in its folder, or, for an album
+    split into disc folders (CD1, CD2...), in those."""
+    files = [p for p in sorted(folder.iterdir()) if p.is_file() and p.suffix.lower() in ab.AUDIO]
+    if files:
+        return files
+    out = []
+    for d in sorted(x for x in folder.iterdir() if x.is_dir()):
+        out += [p for p in sorted(d.iterdir()) if p.is_file() and p.suffix.lower() in ab.AUDIO]
+    return out
 
-def add_minutes(info):
-    """The album's length, reading every track: only when its notes are fetched."""
+def signature(tracks):
+    """Changes when tracks are added, removed or retagged, without opening them."""
+    out = [len(tracks)]
+    for p in (tracks[0], tracks[-1]):
+        st = p.stat()
+        out += [p.name, int(st.st_mtime), st.st_size]
+    return out
+
+LABEL_JUNK = re.compile(r"https?://|www\.|\.(com|net|org)\b|^\[?no label\]?$|^not on label|^none$|^unknown$", re.I)
+
+def clean_label(label):
+    return "" if not label or LABEL_JUNK.search(label.strip()) else label.strip()
+
+def album_info(folder, artist, seen):
+    """Album, album artist, years, label and track count, from the first and last
+    track's tags (reading every file on the iPod's disk takes minutes), reused
+    from the last run while the folder is unchanged. None for a folder that isn't
+    one album (a Singles folder, mixed album tags)."""
+    if folder.name.lower() in SINGLES:
+        return None
+    tracks = album_tracks(folder)
+    if not tracks:
+        return None
+    sig = signature(tracks)
+    old = seen.get(str(folder))
+    if old and old.get("sig") == sig:
+        info = dict(old["info"])
+    else:
+        first, last = read_tags(tracks[0]), read_tags(tracks[-1])
+        album = tag(first, "album")
+        if not album or (last is not None and tag(last, "album").casefold() != album.casefold()):
+            seen[str(folder)] = {"sig": sig, "info": None}
+            return None
+        info = {"album": album,
+                "artist": tag(first, "albumartist", "album artist") or tag(first, "artist") or artist,
+                "orig_year": ab.year(tag(first, "originaldate", "originalyear")),
+                "tag_year": ab.year(tag(first, "date", "year")),
+                "label": clean_label(tag(first, "organization", "label", "publisher")),
+                "tracks": len(tracks)}
+        seen[str(folder)] = {"sig": sig, "info": dict(info)}
+    if not info:
+        return None
+    info.update(files=tracks, minutes=None)
+    return info
+
+def add_minutes(info, meta):
+    """The album's length. Reading every track is slow, so the last run's
+    figure is kept while the track count is the same."""
+    if meta and meta.get("minutes") and meta.get("tracks") == info["tracks"]:
+        info["minutes"] = meta["minutes"]
+        return
     seconds = 0.0
     for p in info["files"]:
         f = read_tags(p)
         seconds += getattr(getattr(f, "info", None), "length", 0) or 0
     info["minutes"] = round(seconds / 60)
 
-def facts_line(info, mb_year=None, mb_label=None):
+def release_year(info, found):
+    """The year the album first came out: the earliest the confirmed album's
+    MusicBrainz release group and Wikidata item give, else your files' original
+    date, else their date (often a reissue's)."""
+    known = [y for y in (found.get("rg_year"), found.get("wd_year")) if y]
+    return min(known) if known else (info["orig_year"] or info["tag_year"] or "")
+
+def facts_line(info, year, label):
     n = info["tracks"]
     return " · ".join(x for x in (
-        info["artist"], info["year"] or mb_year or "", info["label"] or mb_label or "",
+        info["artist"], year, info["label"] or label or "",
         f"{n} track{'s' if n != 1 else ''}",
         f"{info['minutes']} min" if info["minutes"] else "") if x)
 
@@ -115,6 +180,32 @@ def bare_title(t):
     """"OK Computer (Collector's Edition)" -> "okcomputer", for comparing titles."""
     return ab.norm(clean_title(t))
 
+def wd_kind(ent):
+    """"album", "single", "video", "other" or "" (unknown) for a Wikidata item."""
+    kinds = set(ab.wd_claim_ids(ent, "P31"))
+    desc = ((ent.get("descriptions") or {}).get("en") or {}).get("value", "").lower()
+    if "video" in desc or kinds & {"Q10590726", "Q193977"}:
+        return "video"
+    if kinds & ALBUM_TYPES:
+        return "album"
+    if kinds & SINGLE_TYPES or re.search(r"\b(song|single|track)\b", desc):
+        return "single"
+    if kinds & NOT_RELEASES:
+        return "other"
+    if re.search(r"\b(album|EP|mixtape|soundtrack|compilation)\b", desc, re.I):
+        return "album"
+    return ""
+
+def wd_year(ent):
+    years = []
+    for c in (ent.get("claims") or {}).get("P577", []):
+        v = ((c.get("mainsnak") or {}).get("datavalue") or {}).get("value")
+        if isinstance(v, dict) and v.get("time"):
+            y = ab.year(v["time"].lstrip("+"))
+            if y:
+                years.append(y)
+    return min(years) if years else ""
+
 def wd_label(ent, session):
     """The album's first record label, by name, from its Wikidata item."""
     ids = ab.wd_claim_ids(ent, "P264")[:1]
@@ -124,26 +215,60 @@ def wd_label(ent, session):
     labels = lab.get("labels") or {}
     return ((labels.get("en") or labels.get("mul") or {}).get("value") or "").strip()
 
+def item_names(ent):
+    """The item's names, and its English article's title without "(album)"."""
+    names = ab.wd_names(ent)
+    t = ((ent.get("sitelinks") or {}).get("enwiki") or {}).get("title")
+    if t:
+        names.add(ab.norm(re.sub(r"\s*\([^)]*\)$", "", t)))
+    return names
+
+def pick_item(ents, info):
+    """The best acceptable item: an album (or, for three tracks or fewer, a
+    single first), nearest the year in your tags, with an English article."""
+    want_year = info["orig_year"] or info["tag_year"]
+    short = info["tracks"] <= SINGLE_MAX_TRACKS
+    order = {"album": 1, "": 2, "single": 0 if short else None}
+    ok = [(e, wd_kind(e)) for e in ents]
+    ok = [(e, k) for e, k in ok if order.get(k) is not None]
+    if not ok:
+        return None
+    def rank(ek):
+        e, k = ek
+        y = wd_year(e)
+        gap = abs(int(y) - int(want_year)) if y and want_year else 99
+        return (order[k], gap, "enwiki" not in (e.get("sitelinks") or {}))
+    return min(ok, key=rank)[0]
+
+def item_result(ent, session, info):
+    q = ent.get("id")
+    return {"q": q, "ent": ent, "sure": True,
+            "enwiki": ((ent.get("sitelinks") or {}).get("enwiki") or {}).get("title"),
+            "wd_year": wd_year(ent),
+            "label": "" if info.get("label") else wd_label(ent, session)}
+
 def wd_album(info, artist_qid, session):
-    """(English Wikipedia title, Wikidata ID, record label) of the album on
-    Wikidata: an item whose performer is the artist and whose name is the
-    album's. Wikidata answers far more readily than MusicBrainz, so it is asked
-    first."""
+    """The album's Wikidata item: one whose performer is the artist and whose
+    name is the album's, and which is an album (see pick_item). Names are
+    checked on a light download first; only the matches are fetched in full."""
     want = {bare_title(info["album"]), ab.norm(info["album"])}
     for query in (f"haswbstatement:P175={artist_qid} {clean_title(info['album'])}",
                   f"haswbstatement:P175={artist_qid}"):
         r = ab.wiki_get(session, ab.WD_API, {"action": "query", "list": "search", "srsearch": query,
                                              "srlimit": 50, "srnamespace": 0, "format": "json"})
-        if not r.ok:
-            return None, None, ""
+        r.raise_for_status()
         ids = [h["title"] for h in (r.json().get("query") or {}).get("search") or []]
-        ents = ab.wd_entities(ids[:50], session, props="sitelinks|labels|aliases|claims") if ids else {}
-        for q in ids:
-            ent = ents.get(q) or {}
-            if ab.wd_names(ent) & want:
-                label = "" if info.get("label") else wd_label(ent, session)
-                return ((ent.get("sitelinks") or {}).get("enwiki") or {}).get("title"), q, label
-    return None, None, ""
+        if not ids:
+            continue
+        light = ab.wd_entities(ids[:50], session, props="labels|aliases|sitelinks")
+        named = [q for q in ids if item_names(light.get(q) or {}) & want]
+        if not named:
+            continue
+        full = ab.wd_entities(named, session, props="labels|descriptions|claims|sitelinks", sites=None)
+        best = pick_item([full[q] for q in named if q in full], info)
+        if best:
+            return item_result(best, session, info)
+    return None
 
 def release_group(info, artist_mbid, session):
     """The MusicBrainz release group for this album, or None."""
@@ -156,41 +281,66 @@ def release_group(info, artist_mbid, session):
     hits = [g for g in (j or {}).get("release-groups") or [] if bare_title(g.get("title")) == want]
     if not hits:
         return None
-    rank = lambda g: ((g.get("primary-type") not in ("Album", "EP")),
-                      (g.get("first-release-date") or "")[:4] != (info["year"] or "x"),
+    short = info["tracks"] <= SINGLE_MAX_TRACKS
+    year = info["orig_year"] or info["tag_year"] or "x"
+    rank = lambda g: ((g.get("primary-type") not in (("Single", "EP") if short else ("Album", "EP"))),
+                      (g.get("first-release-date") or "")[:4] != year,
                       -int(g.get("score") or 0))
     return sorted(hits, key=rank)[0]
 
-def rg_wikidata(rgid, session):
-    j = ab.mb_get(session, MB + f"release-group/{rgid}", {"inc": "url-rels", "fmt": "json"})
-    for rel in (j or {}).get("relations") or []:
-        if rel.get("type") == "wikidata":
-            m = re.search(r"(Q\d+)$", (rel.get("url") or {}).get("resource", ""))
-            if m:
-                return m.group(1)
-    return None
+def rg_item(rg, session, info):
+    """The Wikidata item for a MusicBrainz release group: asked of Wikidata by
+    the release group's ID first, which spares MusicBrainz a request, then
+    through MusicBrainz's own link."""
+    r = ab.wiki_get(session, ab.WD_API, {"action": "query", "list": "search", "srnamespace": 0,
+                                         "srsearch": f"haswbstatement:P436={rg['id']}", "format": "json"})
+    ids = [h["title"] for h in ((r.json().get("query") or {}).get("search") or [])] if r.ok else []
+    if not ids:
+        j = ab.mb_get(session, MB + f"release-group/{rg['id']}", {"inc": "url-rels", "fmt": "json"})
+        for rel in (j or {}).get("relations") or []:
+            if rel.get("type") == "wikidata":
+                m = re.search(r"(Q\d+)$", (rel.get("url") or {}).get("resource", ""))
+                if m:
+                    ids = [m.group(1)]
+    if not ids:
+        return None
+    ents = ab.wd_entities(ids[:10], session, props="labels|descriptions|claims|sitelinks", sites=None)
+    best = pick_item(list(ents.values()), info)
+    return item_result(best, session, info) if best else None
 
-def wiki_title(info, rg, session):
-    """(English Wikipedia title, confirmed) for the album."""
-    if rg:
-        q = rg_wikidata(rg["id"], session)
-        if q:
-            ent = ab.wd_entities([q], session, props="sitelinks").get(q) or {}
-            t = ((ent.get("sitelinks") or {}).get("enwiki") or {}).get("title")
-            if t:
-                return t, True
-    # by title, then by search: accept only an album article that names the artist.
-    # Titles are case-sensitive past the first letter, so a tag's "Hail To the
-    # Thief" misses the article the search then finds.
+def wiki_summaries(titles, session):
+    """{title asked for: introduction} for up to 20 English articles in one request."""
+    r = ab.wiki_get(session, WIKI_API.format("en"), {
+        "action": "query", "prop": "extracts", "exintro": 1, "explaintext": 1, "exlimit": 20,
+        "redirects": 1, "titles": "|".join(titles[:20]), "format": "json", "formatversion": 2})
+    if not r.ok:
+        return {}
+    q = r.json().get("query") or {}
+    back = {}
+    for k in ("normalized", "redirects"):
+        for m in q.get(k) or []:
+            back[m["to"]] = back.get(m["from"], m["from"])
+    out = {}
+    for p in q.get("pages") or []:
+        if p.get("extract"):
+            out[back.get(p["title"], p["title"])] = p["extract"].strip()
+    return out
+
+def guess_title(info, session):
+    """(English Wikipedia title, False) by likely titles and a search, accepted
+    only for an album article that names the artist; else (None, False). Used
+    only when neither Wikidata nor MusicBrainz knows the album."""
     album = clean_title(info["album"])
     tries = [f"{album} ({info['artist']} album)", f"{album} (album)", f"{album} (EP)", album]
-    r = ab.wiki_get(session, WIKI_API, {"action": "query", "list": "search", "srlimit": 3,
-                                        "srsearch": f"{album} {info['artist']} album",
-                                        "format": "json"})
+    r = ab.wiki_get(session, WIKI_API.format("en"), {
+        "action": "query", "list": "search", "srlimit": 3,
+        "srsearch": f"{album} {info['artist']} album", "format": "json"})
     if r.ok:
         tries += [h["title"] for h in (r.json().get("query") or {}).get("search") or []]
+    tries = list(dict.fromkeys(tries))
+    leads = wiki_summaries(tries, session)
     for t in tries:
-        lead = ab.wiki_summary(t, session)
+        lead = leads.get(t) or ""
         if lead and ab.norm(info["artist"]) in ab.norm(lead[:600]) \
                 and bare_title(info["album"]) in ab.norm(lead[:200]) \
                 and re.search(r"\b(album|EP|record)\b", lead[:300], re.I):
@@ -199,9 +349,9 @@ def wiki_title(info, rg, session):
 
 
 # ---------------------------------------------------------------- the notes
-def wiki_article(title, session):
+def wiki_article(title, session, lang="en"):
     """(plain text with == headings ==, wikitext) of the whole article."""
-    r = ab.wiki_get(session, WIKI_API, {
+    r = ab.wiki_get(session, WIKI_API.format(lang), {
         "action": "query", "prop": "extracts|revisions", "explaintext": 1,
         "exsectionformat": "wiki", "rvprop": "content", "rvslots": "main",
         "redirects": 1, "titles": title, "format": "json", "formatversion": 2})
@@ -222,22 +372,20 @@ def sections(text):
         out.append((parts[i + 1], parts[i + 2]))
     return out
 
-def first_para(body):
-    for p in re.split(r"\n+", body or ""):
-        p = p.strip()
-        if len(p) > 80:
-            return p
-    return ""
+def paragraphs(body):
+    return [p.strip() for p in re.split(r"\n+", body or "") if len(p.strip()) > 80]
 
 def reception(text):
-    """The first paragraph about how critics received it."""
+    """The first paragraph about what critics made of it, from the reception
+    section: in a "Release and reception" section the first paragraph is often
+    about sales, so the first one that speaks of critics is taken."""
     secs = sections(text)
     for want in (r"critical reception", r"^reception$", r"reception", r"critical response"):
         for head, body in secs:
             if re.search(want, head, re.I):
-                p = first_para(body)
-                if p:
-                    return p
+                for p in paragraphs(body):
+                    if CRITIC.search(p):
+                        return p
     return ""
 
 def unwiki(s):
@@ -249,7 +397,13 @@ def unwiki(s):
     s = re.sub(r"\[https?://\S+\s+([^\]]+)\]", r"\1", s)
     s = re.sub(r"'{2,}", "", s)
     s = re.sub(r"<[^>]+>", "", html.unescape(s))
-    return re.sub(r"\s+", " ", s).strip()
+    return re.sub(r"\s+", " ", s).strip(" |")
+
+def tidy_score(score):
+    """"(favourable)" -> "favourable"; "(not rated)", "()" and the like -> ""."""
+    score = re.sub(r"\(\s*\)", "", score).strip(" |")
+    score = re.sub(r"^\((.*)\)$", r"\1", score).strip()
+    return "" if re.fullmatch(r"(not rated|n/?a|none|-|–)?", score, re.I) else score
 
 def scores(wikitext):
     """["Pitchfork 10/10", ...] from the article's Music ratings box."""
@@ -264,21 +418,66 @@ def scores(wikitext):
             out.append(f"Metacritic {v.group(0)}")
     for n, name in re.findall(r"^\s*\|\s*rev(\d+)\s*=\s*(.+)$", box, re.M):
         sc = re.search(rf"^\s*\|\s*rev{n}[Ss]core\s*=\s*(.+)$", box, re.M)
-        name, score = unwiki(name), unwiki(sc.group(1)) if sc else ""
+        name, score = unwiki(name), tidy_score(unwiki(sc.group(1))) if sc else ""
+        name = re.sub(r"\s*\(\s*\)", "", name).strip()
         if name and score and len(score) <= 12:
             out.append(f"{name} {score}")
     return out[:MAX_SCORES]
 
-def lastfm_notes(info, session, key):
-    r = session.get("https://ws.audioscrobbler.com/2.0/", headers=ab.UA, timeout=20, params={
-        "method": "album.getinfo", "api_key": key, "format": "json",
-        "artist": info["artist"], "album": clean_title(info["album"]), "autocorrect": 1})
-    if not r.ok:
-        return ""
-    raw = (((r.json().get("album") or {}).get("wiki")) or {}).get("content") or ""
-    raw = re.split(r"User-contributed text is available|<a href=\"https?://www\.last\.fm[^>]*>Read more", raw)[0]
-    text = "\n".join(p for p in (ab.strip_markup(x) for x in re.split(r"\n+", raw)) if p)
-    return text if len(text) > 80 else ""
+def english_notes(title, session, sure):
+    """(paragraphs, source) from the English article, or None."""
+    text, wt = wiki_article(title, session)
+    lead = ab.trim_bio(sections(text)[0][1]) if text else ""
+    if not lead:
+        return None
+    paras = lead.split("\n")
+    rec = ab.trim_bio(reception(text))
+    if rec:
+        paras += ["# Critical reception", rec]
+    sc = scores(wt)
+    if sc:
+        paras.append("# " + " · ".join(sc))
+    paras.append(tr.credit("wikipedia", title=title, shortened=True))
+    return paras, "wikipedia" + ("" if sure else " (not confirmed)")
+
+def foreign_notes(found, lang, session, translator):
+    """(paragraphs, source) from the album's article in another language,
+    translated, or None. The artist's own language comes first."""
+    links = found["ent"].get("sitelinks") or {}
+    langs = ([lang] if lang else []) + [x for x in OTHER_LANGS if x != lang]
+    for code in langs:
+        title = (links.get(f"{code}wiki") or {}).get("title")
+        if not title:
+            continue
+        text, _ = wiki_article(title, session, code)
+        secs = sections(text) if text else []
+        paras = paragraphs(secs[0][1]) if secs else []
+        if secs and sum(len(p) for p in paras) < 300:          # a short lead: add the next section's start
+            paras += next((paragraphs(b)[:1] for _, b in secs[1:] if paragraphs(b)), [])
+        paras = paras or [p.strip() for p in (secs[0][1] if secs else "").split("\n") if p.strip()]
+        if not paras or not tr.needs_translation(" ".join(paras), code):
+            continue
+        english = translator.translate(paras, code)
+        if english:
+            return (ab.trim_bio("\n".join(english)).split("\n")
+                    + [tr.credit("wikipedia", lang=code, shortened=True)]), f"wikipedia ({code}, translated)"
+    return None
+
+def lastfm_notes(info, names, session, key, lang=None):
+    for name in names:
+        params = {"method": "album.getinfo", "api_key": key, "format": "json",
+                  "artist": name, "album": clean_title(info["album"]), "autocorrect": 1}
+        if lang:
+            params["lang"] = lang
+        r = session.get("https://ws.audioscrobbler.com/2.0/", headers=ab.UA, timeout=20, params=params)
+        if not r.ok:
+            continue
+        raw = (((r.json().get("album") or {}).get("wiki")) or {}).get("content") or ""
+        raw = re.split(r"User-contributed text is available|<a href=\"https?://www\.last\.fm[^>]*>Read more", raw)[0]
+        text = "\n".join(p for p in (ab.strip_markup(x) for x in re.split(r"\n+", raw)) if p)
+        if len(text) > 80:
+            return text
+    return ""
 
 def discogs_notes(info, session, token):
     h = dict(ab.UA, Authorization=f"Discogs token={token}")
@@ -297,66 +496,89 @@ def discogs_notes(info, session, token):
         return notes if len(notes) > 80 else ""
     return ""
 
-def find_notes(info, who, session, args):
-    """(paragraphs, source, release group) -- paragraphs may be empty, leaving the
-    facts line. `who` is the artist's saved IDs from artist_bios.py."""
-    rg, title, sure = None, None, False
-    if who.get("wikidata"):
+_languages = {}
+
+def artist_language(who, session):
+    """The language the artist works in (None for English or unknown), from
+    their Wikidata item, asked once per run."""
+    q = who.get("wikidata")
+    if not q:
+        return None
+    if q not in _languages:
+        ent = ab.wd_entities([q], session, props="claims", sites=None).get(q) or {}
+        _languages[q] = tr.artist_language(ent)
+    return _languages[q]
+
+def find_notes(info, who, session, args, found):
+    """(paragraphs, source) -- paragraphs may be empty, leaving the facts line.
+    `who` is the artist's saved IDs from artist_bios.py; what was learnt about
+    the album (item, release group, years, label) is left in `found`."""
+    def attempt(name, fn):
         try:
-            title, q, label = wd_album(info, who["wikidata"], session)
-            sure = bool(q)
-            if label:
-                info["wd_label"] = label
+            return fn()
         except Exception as e:
-            print(f"     wikidata: {e}")
-    if not title:
-        try:
-            rg = release_group(info, who.get("mbid"), session)
-        except Exception as e:
-            print(f"     musicbrainz unavailable ({e})")
-    if not title:
-        try:
-            title, sure = wiki_title(info, rg, session)
-        except Exception as e:
-            print(f"     wikipedia: {e}")
-    if title:
-        text, wt = wiki_article(title, session)
-        lead = ab.trim_bio(sections(text)[0][1]) if text else ""
-        if lead:
-            paras = lead.split("\n")
-            rec = reception(text)
-            if rec:
-                paras += ["# Critical reception", ab.clean_bio(rec)]
-            sc = scores(wt)
-            if sc:
-                paras.append("# " + " · ".join(sc))
-            paras.append("# From Wikipedia, CC BY-SA")
-            return paras, "wikipedia" + ("" if sure else " (not confirmed)"), rg
-    for name, fn, cred in (("Last.fm", lastfm_notes, args.lastfm_key),
-                           ("Discogs", discogs_notes, args.discogs_token)):
-        if not cred:
-            continue
-        try:
-            text = fn(info, session, cred)
-        except Exception as e:
-            print(f"     {name.lower()}: {e}")
-            text = ""
+            ab.problem(name, e)
+            return None
+    item = attempt("wikidata", lambda: wd_album(info, who["wikidata"], session)) if who.get("wikidata") else None
+    rg = None
+    if not item:
+        rg = attempt("musicbrainz", lambda: release_group(info, who.get("mbid"), session))
+        if rg:
+            found["rg"] = rg
+            found["rg_year"] = ab.year((rg.get("first-release-date") or "")[:4])
+            item = attempt("wikidata", lambda: rg_item(rg, session, info))
+    if item:
+        found.update(wd_year=item["wd_year"], label=item["label"], q=item["q"])
+    lang = None
+    if item and item["enwiki"]:
+        got = attempt("wikipedia", lambda: english_notes(item["enwiki"], session, True))
+        if got:
+            return got
+    elif item:
+        # a confirmed album with no English article: never a guess by title
+        if args.translator:
+            lang = attempt("wikidata", lambda: artist_language(who, session))
+            if lang:
+                got = attempt("other languages", lambda: foreign_notes(item, lang, session, args.translator))
+                if got:
+                    return got
+    else:
+        title, _ = attempt("wikipedia", lambda: guess_title(info, session)) or (None, False)
+        if title:
+            got = attempt("wikipedia", lambda: english_notes(title, session, False))
+            if got:
+                return got
+    names = list(dict.fromkeys(n for n in (who.get("name"), ab.clean_artist(info["artist"]),
+                                           info["folder_artist"]) if n))
+    if args.lastfm_key:
+        text = attempt("last.fm", lambda: lastfm_notes(info, names, session, args.lastfm_key))
         if text:
-            return ab.trim_bio(text).split("\n") + [f"# From {name}"], name.lower(), rg
-    return [], "", rg
+            return ab.trim_bio(text).split("\n") + [tr.credit("lastfm")], "last.fm"
+        if args.translator:
+            lang = lang or attempt("wikidata", lambda: artist_language(who, session))
+            if lang:
+                text = attempt("last.fm", lambda: lastfm_notes(info, names, session, args.lastfm_key, lang))
+                if text and tr.needs_translation(text, lang):
+                    english = args.translator.translate(text.split("\n"), lang)
+                    if english:
+                        return (ab.trim_bio("\n".join(english)).split("\n")
+                                + [tr.credit("lastfm", lang=lang)]), f"last.fm ({lang}, translated)"
+    if args.discogs_token:
+        text = attempt("discogs", lambda: discogs_notes(info, session, args.discogs_token))
+        if text:
+            return ab.trim_bio(text).split("\n") + [tr.credit("discogs")], "discogs"
+    return [], ""
 
 
 # ---------------------------------------------------------------- main
 def artist_ids(folder_artist):
-    """The artist's Wikidata and MusicBrainz IDs, as artist_bios.py confirmed them."""
-    p = ab.CACHE / f"{ab.safe_name(folder_artist)}.json"
-    try:
-        m = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    """The artist's Wikidata and MusicBrainz IDs and proper name, as
+    artist_bios.py confirmed them."""
+    name = ab.safe_name(folder_artist)
+    m = ab.load_json(ab.CACHE / f"{name}.json") if name else None
+    if not m or not m.get("identity_verified", True):
         return {}
-    if not m.get("identity_verified", True):
-        return {}
-    return {"wikidata": m.get("wikidata"), "mbid": m.get("mbid")}
+    return {"wikidata": m.get("wikidata"), "mbid": m.get("mbid"), "name": m.get("name")}
 
 def due(meta, days):
     if not days:
@@ -374,8 +596,10 @@ def main(argv=None):
     ap.add_argument("--ipod", help="the iPod's own folder (default: the folder holding the music folder)")
     ap.add_argument("--refresh", action="store_true", help="fetch every album's notes again")
     ap.add_argument("--retry-not-found", action="store_true",
-                    default=ab.setting_on(conf, "recheck missing", True),
-                    help="look again for albums no notes were found for")
+                    help="look again now for every album no notes were found for")
+    ap.add_argument("--retry-after", type=int, default=ab.setting_days(conf, "recheck missing days", 30),
+                    metavar="DAYS", help="look again for an album with no notes once this many days "
+                                         "have passed (default 30; 0 = never)")
     ap.add_argument("--refresh-after", type=int, default=ab.setting_days(conf, "notes recheck days", 365),
                     metavar="DAYS",
                     help="check an album's notes again once they are this old (default 365; 0 = never)")
@@ -385,6 +609,8 @@ def main(argv=None):
                     help="notes only, no covers")
     ap.add_argument("--discogs-token", default=conf.get("discogs token") or os.environ.get("DISCOGS_TOKEN"),
                     help="Discogs personal token, an extra source (or set DISCOGS_TOKEN)")
+    ap.add_argument("--deepl-key", default=conf.get("deepl key") or os.environ.get("DEEPL_KEY"),
+                    help="DeepL key, to translate notes for artists who don't work in English")
     args = ap.parse_args(argv)
     args.lastfm_key = ab.af.load_credentials().lastfm_api_key or None
 
@@ -396,76 +622,100 @@ def main(argv=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     CACHE.mkdir(parents=True, exist_ok=True)
     print(f"Writing liner notes to {out_dir}")
+    session = requests.Session()
+    args.translator = tr.Translator(args.deepl_key, CACHE.parent / "translations.json", session)
+    if args.translator:
+        print("Translating notes for artists who don't work in English, with DeepL")
     print("Reading the album folders...")
 
     only = {ab.norm(o) for o in args.only}
+    seen = ab.load_json(FOLDERS) or {}
     work = []
     for artist, folders in sorted(ab.scan_library(music).items(), key=lambda kv: kv[0].casefold()):
         if only and not any(o.startswith(ab.norm(artist)) for o in only):
             continue
         for folder in sorted(folders):
-            info = album_info(folder, artist)
+            try:
+                info = album_info(folder, artist, seen)
+            except OSError as e:
+                print(f"  !! {folder}: {e}")
+                continue
             if not info:
                 continue
+            info["folder_artist"] = artist
             key = f"{info['artist']} - {info['album']}"
             if only and ab.norm(artist) not in only and ab.norm(info["artist"]) not in only \
                     and ab.norm(key) not in only:
                 continue
             work.append((artist, folder, info, key))
+    ab.save_json(FOLDERS, seen)
     print(f"{len(work)} albums\n")
 
-    session = requests.Session()
-    counts = {"written": 0, "same": 0, "kept": 0, "facts": 0, "error": 0}
-    missing = []
+    counts = {"written": 0, "same": 0, "kept": 0, "error": 0}
     try:
         for i, (artist, folder, info, key) in enumerate(work, 1):
             name = ab.safe_name(key)
+            if not name:
+                print(f"{i:4d}/{len(work)} {key}\n     skipped: the name is too long for the iPod to open")
+                continue
             mp = CACHE / f"{name}.json"
-            meta = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else None
+            meta = ab.load_json(mp)
             fresh = False
             try:
-                if meta is None or (args.retry_not_found and not meta.get("notes")) or args.refresh \
-                        or due(meta, args.refresh_after):
+                missing = meta is not None and not meta.get("notes")
+                if meta is None or args.refresh or due(meta, args.refresh_after) or \
+                        (missing and (args.retry_not_found or due(meta, args.retry_after))):
                     fresh = True
                     print(f"{i:4d}/{len(work)} {key}")
-                    add_minutes(info)
-                    paras, source, rg = find_notes(info, artist_ids(artist), session, args)
-                    mb_year = ((rg or {}).get("first-release-date") or "")[:4] or None
-                    new = {"key": key, "facts": facts_line(info, mb_year, info.get("wd_label")), "notes": "\n".join(paras),
-                           "source": source, "rg": (rg or {}).get("id"),
+                    add_minutes(info, meta)
+                    found = {}
+                    paras, source = find_notes(info, artist_ids(artist), session, args, found)
+                    new = {"key": key, "notes": "\n".join(paras), "source": source,
+                           "rg": (found.get("rg") or {}).get("id"), "wikidata": found.get("q"),
+                           "year": release_year(info, found), "label": found.get("label", ""),
+                           "tracks": info["tracks"], "minutes": info["minutes"],
                            "fetched": time.strftime("%Y-%m-%d")}
                     if meta:
                         new.update({k: meta[k] for k in ("txt_sha1", "jpg_sha1") if k in meta})
                         if not args.refresh and ab.same_bio(meta.get("notes"), new["notes"]):
                             new["notes"], new["source"] = meta["notes"], meta.get("source", "")
                         if meta.get("notes") and not new["notes"]:
+                            # a source being down never costs notes already found
                             new["notes"], new["source"] = meta["notes"], meta.get("source", "")
                     meta = new
                     print(f"     notes: {meta['source'] or 'facts only'}")
-                text = f"{info['album']}\n{meta['facts']}\n\n{meta['notes']}\n"
+                if "year" in meta:
+                    info["minutes"] = info["minutes"] or meta.get("minutes")
+                    facts = facts_line(info, meta["year"], meta.get("label", ""))
+                else:                   # a record from before the year was looked up: as it was
+                    facts = meta.get("facts", "")
+                text = f"{clean_title(info['album'])}\n{facts}\n\n{meta['notes']}\n"
                 res = [ab.write_if_ours(out_dir / f"{name}.txt", text.encode("utf-8"), meta, "txt_sha1")]
                 jpg = out_dir / f"{name}.jpg"
                 if not args.no_banners and (fresh or not jpg.exists()):
-                    cover = ab.album_cover([folder])[0]
+                    cover = ab.album_cover([folder] + [d for d in folder.iterdir() if d.is_dir()])[0]
                     if cover:
-                        res.append(ab.write_if_ours(jpg,
-                                                    ab.banner_bytes(cover, True), meta, "jpg_sha1"))
-                mp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
-                if not meta["notes"]:
-                    counts["facts"] += 1
-                    missing.append(key)
+                        res.append(ab.write_if_ours(jpg, ab.banner_bytes(cover, True), meta, "jpg_sha1"))
+                ab.save_json(mp, meta)
                 counts["written" if "written" in res else "kept" if "kept" in res else "same"] += 1
             except Exception as e:
                 counts["error"] += 1
-                print(f"  !! {key}: {e}")
+                ab.problem(key, e)
     except KeyboardInterrupt:
         print("\nStopped. Run again to carry on where it left off.")
 
-    MISSING_LIST.write_text("\n".join(missing) + ("\n" if missing else ""), encoding="utf-8")
+    # the list covers every album in scope, whether or not this run reached it
+    missing = []
+    for _, _, _, key in work:
+        m = ab.load_json(CACHE / f"{ab.safe_name(key)}.json") if ab.safe_name(key) else None
+        if m is not None and not m.get("notes"):
+            missing.append(key)
+    if not only:
+        ab.atomic_write(MISSING_LIST, ("\n".join(missing) + ("\n" if missing else "")).encode("utf-8"))
     print(f"\nLiner notes written or updated: {counts['written']}, unchanged: {counts['same']}, "
-          f"kept as you left them: {counts['kept']}, facts only: {counts['facts']}"
+          f"kept as you left them: {counts['kept']}, facts only: {len(missing)}"
           + (f", failed: {counts['error']}" if counts["error"] else ""))
-    if missing:
+    if missing and not only:
         print(f"Albums with only a facts line are listed in \"{MISSING_LIST.name}\".")
     return 0
 

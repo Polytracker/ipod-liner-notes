@@ -9,6 +9,7 @@ import argparse
 import base64
 import difflib
 import getpass
+import hashlib
 import html
 import json
 import os
@@ -907,10 +908,22 @@ def album_candidates(artist: str, album: str, creds: Credentials, args: argparse
         if out and out[-1].mbid: mbid=out[-1].mbid
     return out
 
+STANDIN_STATE = Path(__file__).resolve().with_name("album-cover-fallbacks.json")
+
+def is_standin(output: Path) -> bool:
+    """Whether the artist's picture is an album cover artist_fallback.py put
+    there, unchanged since: those are searched for again and replaced only
+    when a real photo is found."""
+    try:
+        digest = json.loads(STANDIN_STATE.read_text(encoding="utf-8")).get(output.parent.name)
+        return bool(digest) and hashlib.sha1(output.read_bytes()).hexdigest() == digest
+    except (OSError, ValueError, AttributeError):
+        return False
+
 def process_artist_folder(folder: Path, args: argparse.Namespace, creds: Credentials, session: requests.Session, limiter: RateLimiter, cache: dict[str,Any]) -> tuple[bool,str]:
     print(f"\n[{folder.name}]")
     output=folder/args.output_name
-    if output.exists() and not args.overwrite: print(f"  skip: artwork already exists: {output.name}"); return False,"exists"
+    if output.exists() and not args.overwrite and not is_standin(output): print(f"  skip: artwork already exists: {output.name}"); return False,"exists"
     ok,name,reason=verify_artist_folder(folder,args)
     if not ok:
         print(f"  folder check: no confident tag match ({reason})")

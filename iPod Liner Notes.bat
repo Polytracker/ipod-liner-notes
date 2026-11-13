@@ -6,10 +6,10 @@ rem Run from the folder this file is in, so it finds the .py files
 cd /d "%~dp0"
 set "PYTHONIOENCODING=utf-8"
 
-for %%F in (art_fetch.py artist_fallback.py artist_bios.py liner_notes.py) do (
+for %%F in (art_fetch.py artist_fallback.py artist_bios.py liner_notes.py translate.py) do (
     if not exist "%%F" (
         echo Can't find %%F.
-        echo Put this file in the same folder as the four .py files it runs.
+        echo Put this file in the same folder as the five .py files it runs.
         echo.
         pause
         exit /b 1
@@ -44,16 +44,11 @@ if not exist "%MUSIC%\" (
     exit /b 1
 )
 
-rem Album covers standing in for artist photos are taken away first, so
-rem those artists are searched for again every run. Any still not found
-rem get their album cover back in step 2.
-python artist_fallback.py "%MUSIC%" --remove
-echo.
-
 echo ============================================================
 echo  Step 1 of 6: fetching artist photos online
 echo ============================================================
-echo Artists that already have a real photo are skipped.
+echo Artists that already have a real photo are skipped. Artists showing an
+echo album cover are searched for again, and keep the cover if none is found.
 echo Artists with no photo found are skipped automatically.
 echo Press Ctrl+C at any time to stop.
 echo.

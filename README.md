@@ -119,6 +119,7 @@ You should now have these files in that folder:
 | `artist_fallback.py` | Uses an album cover when no photo can be found. |
 | `artist_bios.py` | Writes each artist's bio and banner for the Artist Bio screen. |
 | `liner_notes.py` | Writes each album's notes and cover banner for the Liner Notes screen. |
+| `translate.py` | Translates bios and notes for artists who don't work in English, when you add a DeepL key. |
 | `iPod Liner Notes settings.txt` | Settings for the bios and liner notes (see [Settings](#settings)). |
 
 Keep them together in the same folder.
@@ -182,8 +183,7 @@ file.
 
 | Step | What happens |
 |---|---|
-| Before step 1 | Album covers that were standing in for missing photos are set aside, so those artists are searched for again. |
-| 1. Fetch photos | Looks for a photo of each artist that doesn't have one yet. Artists with a real photo already are skipped. |
+| 1. Fetch photos | Looks for a photo of each artist that doesn't have one yet, including artists showing an album cover in place of one. A cover is replaced only when a real photo is found. Artists with a real photo already are skipped. |
 | 2. Album cover fallback | Any artist still without a photo gets the cover of their biggest album, squared, instead. |
 | 3. Fetch bios | Writes a bio and banner for each artist that doesn't have one yet (see **Artist bios** below). Runs only if the PodBox on your iPod has the Artist Bio screen. |
 | 4. Fetch liner notes | Writes notes for each album that doesn't have them yet (see **Liner notes** below). Runs only if the PodBox on your iPod has the Liner Notes screen. |
@@ -240,11 +240,12 @@ save; it takes effect on the next run.
 | `music folder` | empty | The music folder, if it isn't `Music` on the iPod's drive |
 | `bios` | `auto` | Artist bios: `auto` writes them only if the PodBox on the iPod has the Artist Bio screen, `yes` always, `no` never |
 | `liner notes` | `auto` | The same for liner notes and the Liner Notes screen |
-| `recheck missing` | `yes` | Look again, every run, for artists with no bio and albums with no notes. Ones that have them are left alone |
+| `recheck missing days` | `30` | Days before artists with no bio and albums with no notes are looked for again; `0` never. Ones that have them are left alone |
 | `bio recheck days` | `365` | Days before an artist's bio is checked again; `0` never checks. Artists who have died and bands that have split are never checked again |
 | `notes recheck days` | `365` | The same for an album's liner notes |
 | `banners` | `yes` | Fetch the banner pictures. `no` writes the text only |
 | `discogs token` | empty | Your Discogs personal token, an extra source for both |
+| `deepl key` | empty | Your DeepL key, to translate bios and notes for artists who don't work in English (see **Translation**) |
 
 ### Artist bios
 
@@ -257,8 +258,10 @@ iPod, which the **Artist Bio** screen reads:
   the faces stay in view.
 
 The bio is the introduction of the artist's English Wikipedia article. Where
-there is none it comes from Last.fm (with your Last.fm key) or Discogs, and
-failing those a line of facts. Before looking anything up it checks which
+there is none it comes from Last.fm (with your Last.fm key) or Discogs, then,
+for an artist who doesn't work in English, their own language's Wikipedia or
+Last.fm, translated (see **Translation**), and failing those a line of facts.
+The last line of each bio says where it came from. Before looking anything up it checks which
 artist yours is: when several share the name (a singer called Dijon, and the
 city), it picks the one whose albums match your album folders. A very long
 bio is swapped for a much shorter one from another source when there is one.
@@ -294,12 +297,22 @@ iPod, named `<Album Artist> - <Album>`, which the **Liner Notes** screen reads:
 - `.jpg`: the album's own cover (`cover.jpg`, `folder.jpg` or the art in the
   files), cropped to a 320 x 160 banner.
 
-Each album is matched on MusicBrainz by the artist and title, then its English
-Wikipedia article supplies the introduction, the first paragraph of its
-critical reception and the scores from its ratings box. Without an article the
-notes come from Last.fm or Discogs; an album none of them covers still gets a
-page with its facts line. The album and artist names come from the files'
-tags, and a `Singles` folder or one holding several albums is skipped.
+Each album is matched first among the artist's albums on Wikidata, else on
+MusicBrainz by the artist and title, so a song, a single or a video of the
+same name can't take its place (a folder of three tracks or fewer is taken to
+be a single). Its English Wikipedia article supplies the introduction, the
+first paragraph about what critics made of it and the scores from its ratings
+box. An album with no English article, by an artist who doesn't work in
+English, gets its article in their language, translated. Otherwise the notes
+come from Last.fm or Discogs; an album none of them covers still gets a page
+with its facts line. The album and artist names come from the files' tags; an
+album split into disc folders (`CD1`, `CD2`) is read as one, and a `Singles`
+folder or one holding several albums is skipped.
+
+The title on the page is the plain title, without "Deluxe Edition" and the
+like. The year is when the album first came out, from Wikidata and
+MusicBrainz, then your files' original-date tag, and only then their date tag,
+which often holds a reissue's year.
 
 As with bios, a file you've changed is left alone, and notes are checked again
 once they're a year old (`notes recheck days` in the settings file) and only
@@ -307,6 +320,20 @@ rewritten if they've really changed. To look
 an album up again, run
 `python liner_notes.py "G:\Music" --only "Artist - Album" --refresh`. The
 `liner notes` setting works like `bios`.
+
+### Translation
+
+Most of what is written about Japanese, Korean or Chinese releases, and some
+European ones, isn't in English. With a free DeepL key in the settings file
+(`deepl key = ...`, from [deepl.com/pro-api](https://www.deepl.com/pro-api),
+500,000 characters a month), bios and notes for those artists come from their
+own language's Wikipedia or Last.fm, translated into English. The page's last
+line then says it was machine-translated.
+
+Translation is used only for artists who work in another language (Wikidata
+records their language or country), and only text that really isn't English
+is sent. Every translation is kept on the PC, so a later run never pays for
+the same text twice. A whole library uses a small part of the free allowance.
 
 ---
 
@@ -366,8 +393,9 @@ fill Artist Portraits, it left many artists with no picture:
 **`artist_fallback.py`** (new): for an artist with no photo, squares the cover
 of their biggest album (embedded in the tracks, or the album's `folder.jpg` or
 `cover.jpg`) into the artist's `folder.jpg`, as a baseline JPEG the iPod can
-read. With `--remove` it takes those stand-in covers away again, leaving any
-picture you've added yourself.
+read. art_fetch replaces these stand-ins only when it finds a real photo.
+With `--remove` it takes them away, leaving any picture you've added
+yourself.
 
 **`artist_bios.py`** (new): bios and banner photos for PodBox's Artist Bio
 screen. See **Artist bios** above.
@@ -379,6 +407,13 @@ Notes screen. See **Liner notes** above.
 then updates the database and art cache with PodBox's tools.
 
 ---
+
+## Checking changes
+
+`python -m unittest discover tests` runs offline checks of the cases that
+have tripped real runs: a song or a video taken for an album, lost quote
+marks, untidy scores, reissue years, names too long for the iPod, and the
+language checks. They need no network and take under a second.
 
 ## Licence
 

@@ -23,22 +23,24 @@ did is included here, unchanged, alongside the new artist bios.
 >   endorsed by the PodBox project. Please report problems with this tool
 >   here, not to PodBox.
 > - **Written with AI.** The changes to `art_fetch.py`, and the new
->   `artist_fallback.py`, `artist_bios.py` and `Fetch iPod Artist Photos and Bios.bat`,
+>   `artist_fallback.py`, `artist_bios.py`, `liner_notes.py` and
+>   `Fetch iPod Artist Photos and Bios.bat`,
 >   were written with the help of Claude, an AI assistant made by Anthropic,
 >   at my direction.
 >   I've used them on my own iPod Classic, but they haven't been tested more
 >   widely.
-> - **Bios need a custom PodBox build.** The **Artist Bio** screen that shows
->   the bios isn't in PodBox's official releases yet; it has been proposed to
->   the PodBox developer. Until it is, seeing bios on the iPod means building
->   PodBox from source with the Artist Bio changes added. On an official
->   PodBox build the bios step is skipped automatically, and everything else
->   (artist photos, database and art cache) works as normal.
+> - **Bios and liner notes need a custom PodBox build.** The **Artist Bio**
+>   and **Liner Notes** screens that show them aren't in PodBox's official
+>   releases yet; Artist Bio has been proposed to the PodBox developer. Until
+>   they are, seeing them on the iPod means building PodBox from source with
+>   those changes added. On an official PodBox build both steps are skipped
+>   automatically, and everything else (artist photos, database and art cache)
+>   works as normal.
 > - **Use at your own risk.** The tool writes picture files into your iPod's
 >   music folders and updates its database. Keep a backup of your music.
 
 A one-click Windows tool that fills the **Artist Portraits** menu and the
-**Artist Bio** screen of an iPod running [PodBox](https://github.com/anthonyfletcher/podbox), the Rockbox-based
+**Artist Bio** and **Liner Notes** screens of an iPod running [PodBox](https://github.com/anthonyfletcher/podbox), the Rockbox-based
 firmware for the iPod Classic and iPod Video.
 
 Double-click one file and it:
@@ -49,7 +51,9 @@ Double-click one file and it:
    left blank;
 3. writes a biography and a banner photo for each artist, for the
    **Artist Bio** screen (hold Select on Now Playing);
-4. updates the iPod's database and art cache, so the pictures are there as
+4. writes liner notes for each album, with the critics' scores, for the
+   **Liner Notes** screen;
+5. updates the iPod's database and art cache, so the pictures are there as
    soon as you eject it, with nothing to do on the iPod itself.
 
 ---
@@ -113,6 +117,7 @@ You should now have these files in that folder:
 | `art_fetch.py` | Finds artist photos online. |
 | `artist_fallback.py` | Uses an album cover when no photo can be found. |
 | `artist_bios.py` | Writes each artist's bio and banner for the Artist Bio screen. |
+| `liner_notes.py` | Writes each album's notes and cover banner for the Liner Notes screen. |
 
 Keep them together in the same folder.
 
@@ -184,16 +189,18 @@ file.
 | 1. Fetch photos | Looks for a photo of each artist that doesn't have one yet. Artists with a real photo already are skipped. |
 | 2. Album cover fallback | Any artist still without a photo gets the cover of their biggest album, squared, instead. |
 | 3. Fetch bios | Writes a bio and banner for each artist that doesn't have one yet (see **Artist bios** below). Runs only if the PodBox on your iPod has the Artist Bio screen. |
-| 4. Update database | Runs PodBox's database tool on the iPod. |
-| 5. Update art cache | Runs PodBox's art cache tool, so the new pictures show straight away. |
+| 4. Fetch liner notes | Writes notes for each album that doesn't have them yet (see **Liner notes** below). Runs only if the PodBox on your iPod has the Liner Notes screen. |
+| 5. Update database | Runs PodBox's database tool on the iPod. |
+| 6. Update art cache | Runs PodBox's art cache tool, so the new pictures show straight away. |
 
-At the end it prints a summary, and saves two lists in the tool's folder:
+At the end it prints a summary, and saves these lists in the tool's folder:
 
 - **Artists using album cover.txt**: artists showing an album cover because
   no photo was found.
 - **Artists without photos.txt**: artists with no photo and no album art at
   all.
 - **Artists without bios.txt**: artists no bio could be found for.
+- **Albums without notes.txt**: albums whose page has only the facts line.
 
 ### After each sync
 
@@ -204,7 +211,7 @@ Deezer gets one.
 
 ### Updating the iPod's database
 
-Steps 4 and 5 use PodBox's own PC tools, which come with PodBox and are
+Steps 5 and 6 use PodBox's own PC tools, which come with PodBox and are
 already on your iPod, in `.rockbox\tools\` (`database_pb.exe` and
 `artcache_pb.exe`). There is nothing extra to install, and you don't need to
 run anything on the iPod.
@@ -263,6 +270,29 @@ added. The `.bat`
 checks the iPod and skips this step when its PodBox doesn't have the screen.
 To change that, edit the `BIOS` line near the top of the `.bat`: `yes` writes
 bios whatever the firmware, `no` never does.
+
+### Liner notes
+
+Step 4 writes two files per album into `Artwork\Notes` at the root of the
+iPod, named `<Album Artist> - <Album>`, which the **Liner Notes** screen reads:
+
+- `.txt`: the title, a facts line (artist, year, label, tracks, length), the
+  album's notes, then the critics' scores and where the text came from.
+- `.jpg`: the album's own cover (`cover.jpg`, `folder.jpg` or the art in the
+  files), cropped to a 320 x 160 banner.
+
+Each album is matched on MusicBrainz by the artist and title, then its English
+Wikipedia article supplies the introduction, the first paragraph of its
+critical reception and the scores from its ratings box. Without an article the
+notes come from Last.fm or Discogs; an album none of them covers still gets a
+page with its facts line. The album and artist names come from the files'
+tags, and a `Singles` folder or one holding several albums is skipped.
+
+As with bios, a file you've changed is left alone, and notes are checked again
+once they're a year old and only rewritten if they've really changed. To look
+an album up again, run
+`python liner_notes.py "G:\Music" --only "Artist - Album" --refresh`. The
+`.bat`'s `NOTES` line works like `BIOS`.
 
 ---
 
@@ -327,6 +357,9 @@ picture you've added yourself.
 
 **`artist_bios.py`** (new): bios and banner photos for PodBox's Artist Bio
 screen. See **Artist bios** above.
+
+**`liner_notes.py`** (new): liner notes and cover banners for PodBox's Liner
+Notes screen. See **Liner notes** above.
 
 **`Fetch iPod Artist Photos and Bios.bat`** (new): runs everything above in order,
 then updates the database and art cache with PodBox's tools.

@@ -100,11 +100,20 @@ def facts_line(info, mb_year=None, mb_label=None):
 
 
 # ---------------------------------------------------------------- which album
+EDITION = r"(edition|remaster|deluxe|expanded|anniversary|version|bonus|reissue|legacy|mono|stereo|mix)"
+
+def clean_title(t):
+    """The album's own title, without the edition a release adds to it:
+    "Blue (2021 Remaster)", "Kid A [Deluxe Edition]", "Spirit of Eden - Remastered
+    and Expanded" and "In Rainbows (Disk 2)" all come back as the plain title."""
+    t = re.sub(rf"\s*[\(\[][^)\]]*{EDITION}[^)\]]*[\)\]]", "", t or "", flags=re.I)
+    t = re.sub(r"\s*[\(\[]\s*(disc|disk|cd)\s*\d+\s*[\)\]]", "", t, flags=re.I)
+    t = re.sub(rf"(?:\s+[-–—]|:)\s+[^-–—:]*{EDITION}[^-–—:]*$", "", t, flags=re.I)
+    return t.strip() or (t or "")
+
 def bare_title(t):
     """"OK Computer (Collector's Edition)" -> "okcomputer", for comparing titles."""
-    t = re.sub(r"\s*[\(\[][^)\]]*(edition|remaster|deluxe|expanded|anniversary|version|bonus)[^)\]]*[\)\]]",
-               "", t or "", flags=re.I)
-    return ab.norm(t)
+    return ab.norm(clean_title(t))
 
 def wd_label(ent, session):
     """The album's first record label, by name, from its Wikidata item."""
@@ -121,7 +130,7 @@ def wd_album(info, artist_qid, session):
     album's. Wikidata answers far more readily than MusicBrainz, so it is asked
     first."""
     want = {bare_title(info["album"]), ab.norm(info["album"])}
-    for query in (f"haswbstatement:P175={artist_qid} {info['album']}",
+    for query in (f"haswbstatement:P175={artist_qid} {clean_title(info['album'])}",
                   f"haswbstatement:P175={artist_qid}"):
         r = ab.wiki_get(session, ab.WD_API, {"action": "query", "list": "search", "srsearch": query,
                                              "srlimit": 50, "srnamespace": 0, "format": "json"})
@@ -141,7 +150,8 @@ def release_group(info, artist_mbid, session):
     esc = lambda s: s.replace('"', '\\"')
     who = f"arid:{artist_mbid}" if artist_mbid else f'artist:"{esc(info["artist"])}"'
     j = ab.mb_get(session, MB + "release-group",
-                  {"query": f'releasegroup:"{esc(info["album"])}" AND {who}', "fmt": "json", "limit": 15})
+                  {"query": f'releasegroup:"{esc(clean_title(info["album"]))}" AND {who}',
+                   "fmt": "json", "limit": 15})
     want = bare_title(info["album"])
     hits = [g for g in (j or {}).get("release-groups") or [] if bare_title(g.get("title")) == want]
     if not hits:
@@ -172,10 +182,10 @@ def wiki_title(info, rg, session):
     # by title, then by search: accept only an album article that names the artist.
     # Titles are case-sensitive past the first letter, so a tag's "Hail To the
     # Thief" misses the article the search then finds.
-    tries = [f"{info['album']} ({info['artist']} album)", f"{info['album']} (album)",
-             f"{info['album']} (EP)", info["album"]]
+    album = clean_title(info["album"])
+    tries = [f"{album} ({info['artist']} album)", f"{album} (album)", f"{album} (EP)", album]
     r = ab.wiki_get(session, WIKI_API, {"action": "query", "list": "search", "srlimit": 3,
-                                        "srsearch": f"{info['album']} {info['artist']} album",
+                                        "srsearch": f"{album} {info['artist']} album",
                                         "format": "json"})
     if r.ok:
         tries += [h["title"] for h in (r.json().get("query") or {}).get("search") or []]
@@ -262,7 +272,7 @@ def scores(wikitext):
 def lastfm_notes(info, session, key):
     r = session.get("https://ws.audioscrobbler.com/2.0/", headers=ab.UA, timeout=20, params={
         "method": "album.getinfo", "api_key": key, "format": "json",
-        "artist": info["artist"], "album": info["album"], "autocorrect": 1})
+        "artist": info["artist"], "album": clean_title(info["album"]), "autocorrect": 1})
     if not r.ok:
         return ""
     raw = (((r.json().get("album") or {}).get("wiki")) or {}).get("content") or ""
@@ -273,7 +283,8 @@ def lastfm_notes(info, session, key):
 def discogs_notes(info, session, token):
     h = dict(ab.UA, Authorization=f"Discogs token={token}")
     r = session.get("https://api.discogs.com/database/search", headers=h, timeout=20, params={
-        "artist": info["artist"], "release_title": info["album"], "type": "master", "per_page": 5})
+        "artist": info["artist"], "release_title": clean_title(info["album"]), "type": "master",
+        "per_page": 5})
     time.sleep(1.1)
     if not r.ok:
         return ""

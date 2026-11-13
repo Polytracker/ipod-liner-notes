@@ -418,7 +418,9 @@ def main(argv=None):
             meta = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else None
             fresh = False
             try:
-                if meta is None or args.refresh or due(meta, args.refresh_after):
+                # an album with no notes yet is looked up again on every run
+                if meta is None or not meta.get("notes") or args.refresh \
+                        or due(meta, args.refresh_after):
                     fresh = True
                     print(f"{i:4d}/{len(work)} {key}")
                     add_minutes(info)

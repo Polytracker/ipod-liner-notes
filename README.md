@@ -119,6 +119,7 @@ You should now have these files in that folder:
 | `artist_fallback.py` | Uses an album cover when no photo can be found. |
 | `artist_bios.py` | Writes each artist's bio and banner for the Artist Bio screen. |
 | `liner_notes.py` | Writes each album's notes and cover banner for the Liner Notes screen. |
+| `iPod Liner Notes settings.txt` | Settings for the bios and liner notes (see [Settings](#settings)). |
 
 Keep them together in the same folder.
 
@@ -233,6 +234,20 @@ root of the iPod, and a picture there takes priority over the artist
 folder's `folder.jpg`. If an artist shows the wrong picture, check there
 first.
 
+### Settings
+
+`iPod Liner Notes settings.txt`, beside the scripts, holds the settings for the
+bios and liner notes. Open it in Notepad, change a value after the `=` and
+save; it takes effect on the next run.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `recheck missing` | `yes` | Look again, every run, for artists with no bio and albums with no notes. Ones that have them are left alone |
+| `bio recheck days` | `365` | Days before an artist's bio is checked again; `0` never checks. Artists who have died and bands that have split are never checked again |
+| `notes recheck days` | `365` | The same for an album's liner notes |
+| `banners` | `yes` | Fetch the banner pictures. `no` writes the text only |
+| `discogs token` | empty | Your Discogs personal token, an extra source for both |
+
 ### Artist bios
 
 Step 3 writes two files per artist into `Artwork\Bios` at the root of the
@@ -254,7 +269,7 @@ Photos come from TheAudioDB, Deezer, Discogs or Wikipedia, or the cover of
 one of the artist's albums when none has one. What was downloaded is kept on
 the PC (in `%APPDATA%\RockboxArtistArt\bios`), so a later run only looks up
 new artists, plus any active artist whose bio is over a year old (change that
-with `--refresh-after DAYS`, or `0` to never). Artists who have died and bands
+with `bio recheck days` in the settings file). Artists who have died and bands
 that have split are left as they are. When a bio is checked again, it is only
 replaced if it has really changed, not for a small edit, and the banner photo
 stays as it was. If a source is down when a bio is due, the old one is kept.
@@ -262,8 +277,7 @@ stays as it was. If a source is down when a bio is due, the old one is kept.
 To write your own bio or banner, edit or replace the file in
 `Artwork\Bios`; the tool leaves a file you've changed alone. To look every
 artist up again, run `python artist_bios.py "G:\Music" --refresh`, or for one
-artist add `--only "Artist Name"`. `--retry-not-found` looks again for the
-artists on the no-bio list.
+artist add `--only "Artist Name"`.
 
 The Artist Bio screen isn't in PodBox's official releases yet, so to see the
 bios you need a PodBox build compiled from source with the Artist Bio changes
@@ -290,7 +304,8 @@ page with its facts line. The album and artist names come from the files'
 tags, and a `Singles` folder or one holding several albums is skipped.
 
 As with bios, a file you've changed is left alone, and notes are checked again
-once they're a year old and only rewritten if they've really changed. To look
+once they're a year old (`notes recheck days` in the settings file) and only
+rewritten if they've really changed. To look
 an album up again, run
 `python liner_notes.py "G:\Music" --only "Artist - Album" --refresh`. The
 `.bat`'s `NOTES` line works like `BIOS`.

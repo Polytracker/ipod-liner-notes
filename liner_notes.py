@@ -368,16 +368,22 @@ def due(meta, days):
     return age > days * 86400
 
 def main(argv=None):
+    conf = ab.settings()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("music_root", help="the iPod's music folder, Artist\\Album folders")
     ap.add_argument("--ipod", help="the iPod's own folder (default: the folder holding the music folder)")
     ap.add_argument("--refresh", action="store_true", help="fetch every album's notes again")
-    ap.add_argument("--refresh-after", type=int, default=365, metavar="DAYS",
+    ap.add_argument("--retry-not-found", action="store_true",
+                    default=ab.setting_on(conf, "recheck missing", True),
+                    help="look again for albums no notes were found for")
+    ap.add_argument("--refresh-after", type=int, default=ab.setting_days(conf, "notes recheck days", 365),
+                    metavar="DAYS",
                     help="check an album's notes again once they are this old (default 365; 0 = never)")
     ap.add_argument("--only", action="append", default=[],
                     help='just this artist, or "Artist - Album" (can be given more than once)')
-    ap.add_argument("--no-banners", action="store_true", help="notes only, no covers")
-    ap.add_argument("--discogs-token", default=os.environ.get("DISCOGS_TOKEN"),
+    ap.add_argument("--no-banners", action="store_true", default=not ab.setting_on(conf, "banners", True),
+                    help="notes only, no covers")
+    ap.add_argument("--discogs-token", default=conf.get("discogs token") or os.environ.get("DISCOGS_TOKEN"),
                     help="Discogs personal token, an extra source (or set DISCOGS_TOKEN)")
     args = ap.parse_args(argv)
     args.lastfm_key = ab.af.load_credentials().lastfm_api_key or None
@@ -418,8 +424,7 @@ def main(argv=None):
             meta = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else None
             fresh = False
             try:
-                # an album with no notes yet is looked up again on every run
-                if meta is None or not meta.get("notes") or args.refresh \
+                if meta is None or (args.retry_not_found and not meta.get("notes")) or args.refresh \
                         or due(meta, args.refresh_after):
                     fresh = True
                     print(f"{i:4d}/{len(work)} {key}")

@@ -901,19 +901,58 @@ def write_files(meta, out_dir, args):
     return res
 
 
+# ---------------------------------------------------------------- settings
+SETTINGS = Path(__file__).with_name("iPod Liner Notes settings.txt")
+
+def settings():
+    """The settings file beside the scripts, as name -> value; a missing
+    file or line leaves that setting at its default."""
+    conf = {}
+    try:
+        lines = SETTINGS.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return conf
+    for line in lines:
+        name, eq, value = line.split("#", 1)[0].partition("=")
+        if eq:
+            conf[" ".join(name.lower().split())] = value.strip()
+    return conf
+
+def setting_on(conf, name, default):
+    value = conf.get(name, "").lower()
+    if not value:
+        return default
+    if value in ("yes", "true", "on", "1", "no", "false", "off", "0"):
+        return value in ("yes", "true", "on", "1")
+    sys.exit(f"{SETTINGS.name}: '{name}' should be yes or no, not '{value}'")
+
+def setting_days(conf, name, default):
+    value = conf.get(name, "")
+    if not value:
+        return default
+    if not value.isdigit():
+        sys.exit(f"{SETTINGS.name}: '{name}' should be a number of days, not '{value}'")
+    return int(value)
+
+
 # ---------------------------------------------------------------- main
 def main(argv=None):
+    conf = settings()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("music_root", help="the iPod's music folder, one folder per artist")
     ap.add_argument("--ipod", help="the iPod's own folder (default: the folder holding the music folder)")
     ap.add_argument("--refresh", action="store_true", help="fetch every artist's bio and photo again")
-    ap.add_argument("--retry-not-found", action="store_true", help="look again for artists nothing was found for")
-    ap.add_argument("--refresh-after", type=int, default=365, metavar="DAYS",
+    ap.add_argument("--retry-not-found", action="store_true",
+                    default=setting_on(conf, "recheck missing", True),
+                    help="look again for artists nothing was found for")
+    ap.add_argument("--refresh-after", type=int, default=setting_days(conf, "bio recheck days", 365),
+                    metavar="DAYS",
                     help="fetch an active artist's bio again once it is this old (default 365; 0 = never). "
                          "Artists who have died and bands that have split are not refreshed")
     ap.add_argument("--only", action="append", default=[], help="just this artist (can be given more than once)")
-    ap.add_argument("--no-banners", action="store_true", help="bios only, no photos")
-    ap.add_argument("--discogs-token", default=os.environ.get("DISCOGS_TOKEN"),
+    ap.add_argument("--no-banners", action="store_true", default=not setting_on(conf, "banners", True),
+                    help="bios only, no photos")
+    ap.add_argument("--discogs-token", default=conf.get("discogs token") or os.environ.get("DISCOGS_TOKEN"),
                     help="Discogs personal token, an extra source (or set DISCOGS_TOKEN)")
     ap.add_argument("--long-bio", type=int, default=LONG_BIO,
                     help=f"a bio longer than this is compared with the other sources, and a much "

@@ -106,16 +106,33 @@ def bare_title(t):
                "", t or "", flags=re.I)
     return ab.norm(t)
 
+def wd_album(info, artist_qid, session):
+    """(English Wikipedia title, Wikidata ID) of the album on Wikidata: an item whose
+    performer is the artist and whose name is the album's. Wikidata answers far
+    more readily than MusicBrainz, so it is asked first."""
+    want = {bare_title(info["album"]), ab.norm(info["album"])}
+    for query in (f"haswbstatement:P175={artist_qid} {info['album']}",
+                  f"haswbstatement:P175={artist_qid}"):
+        r = ab.wiki_get(session, ab.WD_API, {"action": "query", "list": "search", "srsearch": query,
+                                             "srlimit": 50, "srnamespace": 0, "format": "json"})
+        if not r.ok:
+            return None, None
+        ids = [h["title"] for h in (r.json().get("query") or {}).get("search") or []]
+        ents = ab.wd_entities(ids[:50], session, props="sitelinks|labels|aliases") if ids else {}
+        for q in ids:
+            ent = ents.get(q) or {}
+            if ab.wd_names(ent) & want:
+                return ((ent.get("sitelinks") or {}).get("enwiki") or {}).get("title"), q
+    return None, None
+
 def release_group(info, artist_mbid, session):
     """The MusicBrainz release group for this album, or None."""
     esc = lambda s: s.replace('"', '\\"')
     who = f"arid:{artist_mbid}" if artist_mbid else f'artist:"{esc(info["artist"])}"'
-    r = ab.mb_get(session, MB + "release-group",
+    j = ab.mb_get(session, MB + "release-group",
                   {"query": f'releasegroup:"{esc(info["album"])}" AND {who}', "fmt": "json", "limit": 15})
-    if not r.ok:
-        return None
     want = bare_title(info["album"])
-    hits = [g for g in r.json().get("release-groups") or [] if bare_title(g.get("title")) == want]
+    hits = [g for g in (j or {}).get("release-groups") or [] if bare_title(g.get("title")) == want]
     if not hits:
         return None
     rank = lambda g: ((g.get("primary-type") not in ("Album", "EP")),
@@ -124,10 +141,8 @@ def release_group(info, artist_mbid, session):
     return sorted(hits, key=rank)[0]
 
 def rg_wikidata(rgid, session):
-    r = ab.mb_get(session, MB + f"release-group/{rgid}", {"inc": "url-rels", "fmt": "json"})
-    if not r.ok:
-        return None
-    for rel in r.json().get("relations") or []:
+    j = ab.mb_get(session, MB + f"release-group/{rgid}", {"inc": "url-rels", "fmt": "json"})
+    for rel in (j or {}).get("relations") or []:
         if rel.get("type") == "wikidata":
             m = re.search(r"(Q\d+)$", (rel.get("url") or {}).get("resource", ""))
             if m:
@@ -143,11 +158,20 @@ def wiki_title(info, rg, session):
             t = ((ent.get("sitelinks") or {}).get("enwiki") or {}).get("title")
             if t:
                 return t, True
-    # by title: accept only an album article that names the artist
-    for t in (f"{info['album']} ({info['artist']} album)", f"{info['album']} (album)",
-              f"{info['album']} (EP)", info["album"]):
+    # by title, then by search: accept only an album article that names the artist.
+    # Titles are case-sensitive past the first letter, so a tag's "Hail To the
+    # Thief" misses the article the search then finds.
+    tries = [f"{info['album']} ({info['artist']} album)", f"{info['album']} (album)",
+             f"{info['album']} (EP)", info["album"]]
+    r = ab.wiki_get(session, WIKI_API, {"action": "query", "list": "search", "srlimit": 3,
+                                        "srsearch": f"{info['album']} {info['artist']} album",
+                                        "format": "json"})
+    if r.ok:
+        tries += [h["title"] for h in (r.json().get("query") or {}).get("search") or []]
+    for t in tries:
         lead = ab.wiki_summary(t, session)
         if lead and ab.norm(info["artist"]) in ab.norm(lead[:600]) \
+                and bare_title(info["album"]) in ab.norm(lead[:200]) \
                 and re.search(r"\b(album|EP|record)\b", lead[:300], re.I):
             return t, False
     return None, False
@@ -251,18 +275,31 @@ def discogs_notes(info, session, token):
         return notes if len(notes) > 80 else ""
     return ""
 
-def find_notes(info, artist_mbid, session, args):
-    """(paragraphs, source) -- paragraphs may be empty, leaving the facts line."""
-    rg = None
-    try:
-        rg = release_group(info, artist_mbid, session)
-    except Exception as e:
-        print(f"     musicbrainz: {e}")
-    title, sure = None, False
-    try:
-        title, sure = wiki_title(info, rg, session)
-    except Exception as e:
-        print(f"     wikipedia: {e}")
+_mb_failures = [0]        # MusicBrainz refusals in a row
+
+def find_notes(info, who, session, args):
+    """(paragraphs, source, release group) -- paragraphs may be empty, leaving the
+    facts line. `who` is the artist's saved IDs from artist_bios.py."""
+    rg, title, sure = None, None, False
+    if who.get("wikidata"):
+        try:
+            title, q = wd_album(info, who["wikidata"], session)
+            sure = bool(q)
+        except Exception as e:
+            print(f"     wikidata: {e}")
+    if not title and _mb_failures[0] < 2:
+        try:
+            rg = release_group(info, who.get("mbid"), session)
+            _mb_failures[0] = 0
+        except Exception as e:
+            _mb_failures[0] += 1
+            print(f"     musicbrainz unavailable ({e})"
+                  + ("; not asking it again this run" if _mb_failures[0] >= 2 else ""))
+    if not title:
+        try:
+            title, sure = wiki_title(info, rg, session)
+        except Exception as e:
+            print(f"     wikipedia: {e}")
     if title:
         text, wt = wiki_article(title, session)
         lead = ab.trim_bio(sections(text)[0][1]) if text else ""
@@ -291,13 +328,16 @@ def find_notes(info, artist_mbid, session, args):
 
 
 # ---------------------------------------------------------------- main
-def artist_mbid(folder_artist):
+def artist_ids(folder_artist):
+    """The artist's Wikidata and MusicBrainz IDs, as artist_bios.py confirmed them."""
     p = ab.CACHE / f"{ab.safe_name(folder_artist)}.json"
     try:
         m = json.loads(p.read_text(encoding="utf-8"))
-        return m.get("mbid") if m.get("identity_verified", True) else None
     except (OSError, ValueError):
-        return None
+        return {}
+    if not m.get("identity_verified", True):
+        return {}
+    return {"wikidata": m.get("wikidata"), "mbid": m.get("mbid")}
 
 def due(meta, days):
     if not days:
@@ -363,7 +403,7 @@ def main(argv=None):
                     fresh = True
                     print(f"{i:4d}/{len(work)} {key}")
                     add_minutes(info)
-                    paras, source, rg = find_notes(info, artist_mbid(artist), session, args)
+                    paras, source, rg = find_notes(info, artist_ids(artist), session, args)
                     mb_year = ((rg or {}).get("first-release-date") or "")[:4] or None
                     new = {"key": key, "facts": facts_line(info, mb_year), "notes": "\n".join(paras),
                            "source": source, "rg": (rg or {}).get("id"),

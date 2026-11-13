@@ -4,7 +4,7 @@ the network: Wikidata items are cut down from real replies (November 2026).
 
   python -m unittest discover tests
 """
-import json, os, sys, tempfile, unittest
+import os, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 

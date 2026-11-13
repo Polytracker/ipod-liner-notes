@@ -418,23 +418,18 @@ def main(argv=None):
             meta = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else None
             fresh = False
             try:
-                # notes cached before edition wording was taken off a title are
-                # looked up again once, for albums whose title has some
-                retitled = (meta is not None and not meta.get("clean_title")
-                            and clean_title(info["album"]) != info["album"])
-                if meta is None or args.refresh or retitled or due(meta, args.refresh_after):
+                if meta is None or args.refresh or due(meta, args.refresh_after):
                     fresh = True
                     print(f"{i:4d}/{len(work)} {key}")
                     add_minutes(info)
                     paras, source, rg = find_notes(info, artist_ids(artist), session, args)
                     mb_year = ((rg or {}).get("first-release-date") or "")[:4] or None
                     new = {"key": key, "facts": facts_line(info, mb_year, info.get("wd_label")), "notes": "\n".join(paras),
-                           "source": source, "rg": (rg or {}).get("id"), "clean_title": True,
+                           "source": source, "rg": (rg or {}).get("id"),
                            "fetched": time.strftime("%Y-%m-%d")}
                     if meta:
                         new.update({k: meta[k] for k in ("txt_sha1", "jpg_sha1") if k in meta})
-                        if not args.refresh and not retitled \
-                                and ab.same_bio(meta.get("notes"), new["notes"]):
+                        if not args.refresh and ab.same_bio(meta.get("notes"), new["notes"]):
                             new["notes"], new["source"] = meta["notes"], meta.get("source", "")
                         if meta.get("notes") and not new["notes"]:
                             new["notes"], new["source"] = meta["notes"], meta.get("source", "")

@@ -106,24 +106,35 @@ def bare_title(t):
                "", t or "", flags=re.I)
     return ab.norm(t)
 
+def wd_label(ent, session):
+    """The album's first record label, by name, from its Wikidata item."""
+    ids = ab.wd_claim_ids(ent, "P264")[:1]
+    if not ids:
+        return ""
+    lab = ab.wd_entities(ids, session, props="labels").get(ids[0]) or {}
+    labels = lab.get("labels") or {}
+    return ((labels.get("en") or labels.get("mul") or {}).get("value") or "").strip()
+
 def wd_album(info, artist_qid, session):
-    """(English Wikipedia title, Wikidata ID) of the album on Wikidata: an item whose
-    performer is the artist and whose name is the album's. Wikidata answers far
-    more readily than MusicBrainz, so it is asked first."""
+    """(English Wikipedia title, Wikidata ID, record label) of the album on
+    Wikidata: an item whose performer is the artist and whose name is the
+    album's. Wikidata answers far more readily than MusicBrainz, so it is asked
+    first."""
     want = {bare_title(info["album"]), ab.norm(info["album"])}
     for query in (f"haswbstatement:P175={artist_qid} {info['album']}",
                   f"haswbstatement:P175={artist_qid}"):
         r = ab.wiki_get(session, ab.WD_API, {"action": "query", "list": "search", "srsearch": query,
                                              "srlimit": 50, "srnamespace": 0, "format": "json"})
         if not r.ok:
-            return None, None
+            return None, None, ""
         ids = [h["title"] for h in (r.json().get("query") or {}).get("search") or []]
-        ents = ab.wd_entities(ids[:50], session, props="sitelinks|labels|aliases") if ids else {}
+        ents = ab.wd_entities(ids[:50], session, props="sitelinks|labels|aliases|claims") if ids else {}
         for q in ids:
             ent = ents.get(q) or {}
             if ab.wd_names(ent) & want:
-                return ((ent.get("sitelinks") or {}).get("enwiki") or {}).get("title"), q
-    return None, None
+                label = "" if info.get("label") else wd_label(ent, session)
+                return ((ent.get("sitelinks") or {}).get("enwiki") or {}).get("title"), q, label
+    return None, None, ""
 
 def release_group(info, artist_mbid, session):
     """The MusicBrainz release group for this album, or None."""
@@ -281,8 +292,10 @@ def find_notes(info, who, session, args):
     rg, title, sure = None, None, False
     if who.get("wikidata"):
         try:
-            title, q = wd_album(info, who["wikidata"], session)
+            title, q, label = wd_album(info, who["wikidata"], session)
             sure = bool(q)
+            if label:
+                info["wd_label"] = label
         except Exception as e:
             print(f"     wikidata: {e}")
     if not title:
@@ -400,7 +413,7 @@ def main(argv=None):
                     add_minutes(info)
                     paras, source, rg = find_notes(info, artist_ids(artist), session, args)
                     mb_year = ((rg or {}).get("first-release-date") or "")[:4] or None
-                    new = {"key": key, "facts": facts_line(info, mb_year), "notes": "\n".join(paras),
+                    new = {"key": key, "facts": facts_line(info, mb_year, info.get("wd_label")), "notes": "\n".join(paras),
                            "source": source, "rg": (rg or {}).get("id"),
                            "fetched": time.strftime("%Y-%m-%d")}
                     if meta:

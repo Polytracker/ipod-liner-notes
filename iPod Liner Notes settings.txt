@@ -1,6 +1,18 @@
 # Settings for the artist bios and liner notes.
 # Change a value after the = sign and save. A line starting with # is ignored.
 
+# The iPod's drive letter, as File Explorer shows it.
+ipod drive = G:
+
+# The music folder on the iPod. Leave empty for the Music folder on the drive.
+music folder =
+
+# Artist bios, for PodBox's Artist Bio screen, and liner notes, for its Liner
+# Notes screen: auto writes them only if the PodBox on the iPod has that
+# screen, yes always, no never.
+bios = auto
+liner notes = auto
+
 # yes or no: look again, on every run, for artists with no bio and albums
 # with no notes. Albums and artists that already have them are left alone.
 recheck missing = yes

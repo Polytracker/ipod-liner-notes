@@ -935,6 +935,23 @@ def setting_days(conf, name, default):
     return int(value)
 
 
+def batch_settings():
+    """Print the settings the .bat file uses, as NAME=value lines."""
+    conf = settings()
+    drive = conf.get("ipod drive", "G:").rstrip("\\/")
+    if len(drive) == 1:
+        drive += ":"
+    if not (len(drive) == 2 and drive[0].isalpha() and drive[1] == ":"):
+        sys.exit(f"{SETTINGS.name}: 'ipod drive' should be a drive letter such as G:, not '{drive}'")
+    print(f"IPOD={drive.upper()}")
+    print(f"MUSIC={conf.get('music folder', '').rstrip(chr(92) + '/') or drive.upper() + chr(92) + 'Music'}")
+    for name, var in (("bios", "BIOS"), ("liner notes", "NOTES")):
+        value = conf.get(name, "").lower() or "auto"
+        if value not in ("auto", "yes", "no"):
+            sys.exit(f"{SETTINGS.name}: '{name}' should be auto, yes or no, not '{value}'")
+        print(f"{var}={value}")
+
+
 # ---------------------------------------------------------------- main
 def main(argv=None):
     conf = settings()

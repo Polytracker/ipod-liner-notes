@@ -156,14 +156,9 @@ The tool assumes your iPod shows up as drive **G:** with its music in
 
 1. Plug in the iPod and look in **File Explorer > This PC** to see its drive
    letter.
-2. Right-click `iPod Liner Notes.bat` and choose **Edit** (on
-   Windows 11, **Show more options > Edit**).
-3. Near the top, change these two lines to match, for example for drive `E:`:
-
-   ```
-   set "IPOD=E:"
-   set "MUSIC=E:\Music"
-   ```
+2. Open `iPod Liner Notes settings.txt` in Notepad.
+3. Change the `ipod drive` line to match, for example `ipod drive = E:`. If
+   the music isn't in a folder called `Music`, set `music folder` too.
 
 4. Save and close.
 
@@ -236,12 +231,15 @@ first.
 
 ### Settings
 
-`iPod Liner Notes settings.txt`, beside the scripts, holds the settings for the
-bios and liner notes. Open it in Notepad, change a value after the `=` and
+`iPod Liner Notes settings.txt`, beside the scripts, holds the tool's settings. Open it in Notepad, change a value after the `=` and
 save; it takes effect on the next run.
 
 | Setting | Default | What it does |
 |---|---|---|
+| `ipod drive` | `G:` | The iPod's drive letter |
+| `music folder` | empty | The music folder, if it isn't `Music` on the iPod's drive |
+| `bios` | `auto` | Artist bios: `auto` writes them only if the PodBox on the iPod has the Artist Bio screen, `yes` always, `no` never |
+| `liner notes` | `auto` | The same for liner notes and the Liner Notes screen |
 | `recheck missing` | `yes` | Look again, every run, for artists with no bio and albums with no notes. Ones that have them are left alone |
 | `bio recheck days` | `365` | Days before an artist's bio is checked again; `0` never checks. Artists who have died and bands that have split are never checked again |
 | `notes recheck days` | `365` | The same for an album's liner notes |
@@ -283,8 +281,8 @@ The Artist Bio screen isn't in PodBox's official releases yet, so to see the
 bios you need a PodBox build compiled from source with the Artist Bio changes
 added. The `.bat`
 checks the iPod and skips this step when its PodBox doesn't have the screen.
-To change that, edit the `BIOS` line near the top of the `.bat`: `yes` writes
-bios whatever the firmware, `no` never does.
+To change that, set `bios` in the settings file: `yes` writes bios whatever
+the firmware, `no` never does.
 
 ### Liner notes
 
@@ -308,7 +306,7 @@ once they're a year old (`notes recheck days` in the settings file) and only
 rewritten if they've really changed. To look
 an album up again, run
 `python liner_notes.py "G:\Music" --only "Artist - Album" --refresh`. The
-`.bat`'s `NOTES` line works like `BIOS`.
+`liner notes` setting works like `bios`.
 
 ---
 

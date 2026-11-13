@@ -2,23 +2,8 @@
 chcp 65001 >nul
 title Update iPod (artist photos, bios, liner notes, database, art cache)
 
-rem ============================================================
-rem  Change these if your iPod uses a different drive or folder
-set "IPOD=G:"
-set "MUSIC=G:\Music"
-
-rem  Artist bios, for PodBox's Artist Bio screen:
-rem    auto = only if the PodBox on this iPod has that screen
-rem    yes  = always       no = never
-set "BIOS=auto"
-
-rem  Liner notes, for PodBox's Liner Notes screen: auto, yes or no as above
-set "NOTES=auto"
-rem ============================================================
-
 rem Run from the folder this file is in, so it finds the .py files
 cd /d "%~dp0"
-set "TOOLS=%IPOD%\.rockbox\tools"
 set "PYTHONIOENCODING=utf-8"
 
 for %%F in (art_fetch.py artist_fallback.py artist_bios.py liner_notes.py) do (
@@ -31,11 +16,29 @@ for %%F in (art_fetch.py artist_fallback.py artist_bios.py liner_notes.py) do (
     )
 )
 
+rem The drive, music folder and which steps run come from the settings file
+if not exist "iPod Liner Notes settings.txt" (
+    echo Can't find iPod Liner Notes settings.txt.
+    echo Put it in the same folder as this file.
+    echo.
+    pause
+    exit /b 1
+)
+set "IPOD="
+for /f "usebackq delims=" %%L in (`python -c "import artist_bios; artist_bios.batch_settings()"`) do set "%%L"
+if not defined IPOD (
+    echo Couldn't read iPod Liner Notes settings.txt - see the message above.
+    echo.
+    pause
+    exit /b 1
+)
+set "TOOLS=%IPOD%\.rockbox\tools"
+
 if not exist "%MUSIC%\" (
     echo Can't find %MUSIC%
     echo Is the iPod plugged in and showing in File Explorer?
-    echo If it's on a different drive or folder, right-click this file,
-    echo choose Edit, and change the IPOD and MUSIC lines near the top.
+    echo If it's on a different drive or folder, open
+    echo iPod Liner Notes settings.txt and change ipod drive or music folder.
     echo.
     pause
     exit /b 1
@@ -68,15 +71,15 @@ echo ============================================================
 echo  Step 3 of 6: fetching artist bios
 echo ============================================================
 if /i "%BIOS%"=="no" (
-    echo Skipped: BIOS is set to no at the top of this file.
-    set "BIORESULT=skipped - BIOS=no"
+    echo Skipped: bios is set to no in the settings file.
+    set "BIORESULT=skipped - bios = no"
     goto :bios_done
 )
 if /i "%BIOS%"=="yes" goto :bios_run
 findstr /m /c:"Artwork/Bios" "%IPOD%\.rockbox\rockbox.ipod" >nul 2>&1 && goto :bios_run
 findstr /m /c:"No bio for this artist" "%IPOD%\.rockbox\langs\english.lng" >nul 2>&1 && goto :bios_run
 echo Skipped: the PodBox on this iPod has no Artist Bio screen.
-echo To write bios anyway, set BIOS=yes at the top of this file.
+echo To write bios anyway, set bios = yes in the settings file.
 set "BIORESULT=skipped - no Artist Bio screen on this iPod"
 goto :bios_done
 
@@ -93,15 +96,15 @@ echo ============================================================
 echo  Step 4 of 6: fetching liner notes
 echo ============================================================
 if /i "%NOTES%"=="no" (
-    echo Skipped: NOTES is set to no at the top of this file.
-    set "NOTESRESULT=skipped - NOTES=no"
+    echo Skipped: liner notes is set to no in the settings file.
+    set "NOTESRESULT=skipped - liner notes = no"
     goto :notes_done
 )
 if /i "%NOTES%"=="yes" goto :notes_run
 findstr /m /c:"Artwork/Notes" "%IPOD%\.rockbox\rockbox.ipod" >nul 2>&1 && goto :notes_run
 findstr /m /c:"No liner notes for this album" "%IPOD%\.rockbox\langs\english.lng" >nul 2>&1 && goto :notes_run
 echo Skipped: the PodBox on this iPod has no Liner Notes screen.
-echo To write liner notes anyway, set NOTES=yes at the top of this file.
+echo To write liner notes anyway, set liner notes = yes in the settings file.
 set "NOTESRESULT=skipped - no Liner Notes screen on this iPod"
 goto :notes_done
 

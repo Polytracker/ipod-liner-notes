@@ -59,6 +59,19 @@ class WhichItem(unittest.TestCase):
         self.assertIsNone(ln.pick_item([edition, track], info("Help!", 14)))
 
 
+class Guess(unittest.TestCase):
+    def test_song_article_refused_for_an_album(self):
+        lead = ('"They Reminisce Over You (T.R.O.Y.)" is a song by Pete Rock & CL Smooth, from their '
+                "debut album Mecca and the Soul Brother, released as a single in 1992.")
+        i = dict(info("They Reminisce Over You", 13), artist="Pete Rock & C.L. Smooth")
+        reply = mock.Mock(ok=True, json=lambda: {"query": {"search": []}})
+        with mock.patch.object(ab, "wiki_get", return_value=reply), \
+                mock.patch.object(ln, "wiki_summaries", return_value={"They Reminisce Over You": lead}):
+            self.assertEqual(ln.guess_title(i, None), (None, False))
+            i["tracks"] = 2
+            self.assertEqual(ln.guess_title(i, None), ("They Reminisce Over You", False))
+
+
 class Text(unittest.TestCase):
     def test_quotes_kept(self):
         self.assertEqual(ab.trim_bio('"Both Sides, Now" is a song by Joni Mitchell.'),

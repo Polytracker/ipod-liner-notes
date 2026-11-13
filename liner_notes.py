@@ -339,8 +339,11 @@ def guess_title(info, session):
         tries += [h["title"] for h in (r.json().get("query") or {}).get("search") or []]
     tries = list(dict.fromkeys(tries))
     leads = wiki_summaries(tries, session)
+    songs_ok = info["tracks"] <= SINGLE_MAX_TRACKS
     for t in tries:
         lead = leads.get(t) or ""
+        if not songs_ok and re.search(r"\bis an? (\w+ )?(song|single)\b", lead[:250]):
+            continue                        # a song's article, for a whole album
         if lead and ab.norm(info["artist"]) in ab.norm(lead[:600]) \
                 and bare_title(info["album"]) in ab.norm(lead[:200]) \
                 and re.search(r"\b(album|EP|record)\b", lead[:300], re.I):

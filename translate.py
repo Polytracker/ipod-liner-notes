@@ -149,17 +149,23 @@ def retrieved(date=None):
     m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", date)
     return f", retrieved {int(m[3])} {MONTHS[int(m[2]) - 1]} {m[1]}" if m else ""
 
-def credit(source, lang=None, title=None, shortened=False, date=None):
+def credit(source, lang=None, title=None, part="introduction", date=None):
     """The quiet last line naming where the text came from, as its licence asks,
-    and when it was taken (`date` as YYYY-MM-DD, default today)."""
-    how = "shortened" if shortened else "adapted"
+    and when it was taken (`date` as YYYY-MM-DD, default today). For Wikipedia,
+    `part` is "introduction" (the whole lead) or "excerpts" (the lead and a
+    paragraph from further down)."""
     when = retrieved(date)
     if source.startswith("wikipedia"):
-        if lang and lang != "en":
-            return f"# Machine-translated from {NAMES.get(lang, lang)} Wikipedia, CC BY-SA 4.0, {how}{when}"
-        if title:
-            return f"# From the Wikipedia article \"{title}\", CC BY-SA 4.0, {how}{when}"
-        return f"# From Wikipedia, CC BY-SA 4.0, {how}{when}"
+        foreign = lang and lang != "en"
+        # another language's title would be in a script the iPod's font may lack
+        article = (f"{NAMES.get(lang, lang)} Wikipedia article" if foreign
+                   else "Wikipedia article" + (f" \"{title}\"" if title else ""))
+        what = f"excerpts from the {article}" if part == "excerpts" else f"the introduction to the {article}"
+        if foreign:
+            line = "Machine-translated " + (what if part == "excerpts" else f"from {what}")
+        else:
+            line = what[0].upper() + what[1:] if part == "excerpts" else f"From {what}"
+        return f"# {line}, CC BY-SA 4.0{when}"
     if source.startswith("last"):
         if lang and lang != "en":
             return f"# Machine-translated from Last.fm ({NAMES.get(lang, lang)}), CC BY-SA{when}"

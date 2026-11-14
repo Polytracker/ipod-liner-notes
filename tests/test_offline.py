@@ -190,7 +190,8 @@ class Translation(unittest.TestCase):
             paras, source = ln.foreign_notes(found, "ja", None, translator)
         self.assertEqual(source, "wikipedia (ja, translated)")
         self.assertEqual(len(translator.translate.call_args[0][0]), 2)      # short lead + next section
-        self.assertTrue(paras[-1].startswith("# Machine-translated from Japanese Wikipedia, CC BY-SA 4.0, shortened, retrieved "))
+        self.assertRegex(paras[-1], r'^# Machine-translated excerpts from the Japanese Wikipedia article, '
+                                    r"CC BY-SA 4\.0, retrieved ")
 
 
 class Files(unittest.TestCase):
@@ -228,9 +229,15 @@ class Files(unittest.TestCase):
 class Credits(unittest.TestCase):
     def test_lines(self):
         day = "2026-11-04"
-        self.assertEqual(tr.credit("wikipedia", title="OK Computer", shortened=True, date=day),
-                         '# From the Wikipedia article "OK Computer", CC BY-SA 4.0, shortened, '
+        self.assertEqual(tr.credit("wikipedia", title="OK Computer", part="excerpts", date=day),
+                         '# Excerpts from the Wikipedia article "OK Computer", CC BY-SA 4.0, '
                          'retrieved 4 Nov 2026')
+        self.assertEqual(tr.credit("wikipedia", title="Radiohead", date=day),
+                         '# From the introduction to the Wikipedia article "Radiohead", CC BY-SA 4.0, '
+                         'retrieved 4 Nov 2026')
+        self.assertEqual(tr.credit("wikipedia", lang="ja", title="青葉市子", date=day),
+                         '# Machine-translated from the introduction to the Japanese Wikipedia article, '
+                         'CC BY-SA 4.0, retrieved 4 Nov 2026')
         self.assertEqual(tr.credit("lastfm", date=day), "# From Last.fm, CC BY-SA, retrieved 4 Nov 2026")
         self.assertEqual(tr.credit("lastfm", lang="ja", date=day),
                          "# Machine-translated from Last.fm (Japanese), CC BY-SA, retrieved 4 Nov 2026")

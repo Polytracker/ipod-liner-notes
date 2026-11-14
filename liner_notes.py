@@ -440,7 +440,7 @@ def english_notes(title, session, sure):
     sc = scores(wt)
     if sc:
         paras.append("# " + " · ".join(sc))
-    paras.append(tr.credit("wikipedia", title=title, shortened=True))
+    paras.append(tr.credit("wikipedia", title=title, part="excerpts" if rec else "introduction"))
     return paras, "wikipedia" + ("" if sure else " (not confirmed)")
 
 def foreign_notes(found, lang, session, translator):
@@ -455,15 +455,17 @@ def foreign_notes(found, lang, session, translator):
         text, _ = wiki_article(title, session, code)
         secs = sections(text) if text else []
         paras = paragraphs(secs[0][1]) if secs else []
+        lead = len(paras)
         if secs and sum(len(p) for p in paras) < 300:          # a short lead: add the next section's start
             paras += next((paragraphs(b)[:1] for _, b in secs[1:] if paragraphs(b)), [])
+        part = "excerpts" if len(paras) > lead else "introduction"
         paras = paras or [p.strip() for p in (secs[0][1] if secs else "").split("\n") if p.strip()]
         if not paras or not tr.needs_translation(" ".join(paras), code):
             continue
         english = translator.translate(paras, code)
         if english:
             return (ab.trim_bio("\n".join(english)).split("\n")
-                    + [tr.credit("wikipedia", lang=code, shortened=True)]), f"wikipedia ({code}, translated)"
+                    + [tr.credit("wikipedia", lang=code, part=part)]), f"wikipedia ({code}, translated)"
     return None
 
 def lastfm_notes(info, names, session, key, lang=None):

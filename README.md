@@ -261,7 +261,8 @@ The bio is the introduction of the artist's English Wikipedia article. Where
 there is none it comes from Last.fm (with your Last.fm key) or Discogs, then,
 for an artist who doesn't work in English, their own language's Wikipedia or
 Last.fm, translated (see **Translation**), and failing those a line of facts.
-The last line of each bio says where it came from. Before looking anything up it checks which
+The last line of each bio says where it came from and the date it was
+retrieved. Before looking anything up it checks which
 artist yours is: when several share the name (a singer called Dijon, and the
 city), it picks the one whose albums match your album folders. A very long
 bio is swapped for a much shorter one from another source when there is one.
@@ -293,7 +294,8 @@ Step 4 writes two files per album into `Artwork\Notes` at the root of the
 iPod, named `<Album Artist> - <Album>`, which the **Liner Notes** screen reads:
 
 - `.txt`: the title, a facts line (artist, year, label, tracks, length), the
-  album's notes, then the critics' scores and where the text came from.
+  album's notes, then the critics' scores, and where the text came from and
+  the date it was retrieved.
 - `.jpg`: the album's own cover (`cover.jpg`, `folder.jpg` or the art in the
   files), cropped to a 320 x 160 banner.
 

@@ -971,6 +971,7 @@ def fetch(artist, folders, session, args, known, want_photo=True):
         print(f"     theaudiodb: {e}")
     meta = {"artist": artist, "bio": trim_bio(bio), "bio_source": src, "bio_verified": sure,
             "bio_title": facts.get("title"), "bio_lang": facts.get("lang"),
+            "bio_date": time.strftime("%Y-%m-%d"),
             "subtitle": join_subtitle(genre_place(adb) if adb else mb_genre_place(who),
                                       mb_dates(who) or (audiodb_dates(adb) if adb else "")),
             "fetched": time.strftime("%Y-%m-%d")}
@@ -1029,7 +1030,7 @@ def banner_bytes(photo, centre):
     banner.save(out, "JPEG", quality=90, progressive=False)   # baseline: quickest on the iPod
     return out.getvalue()
 
-BIO_FIELDS = ("bio", "bio_source", "bio_verified", "bio_title", "bio_lang")
+BIO_FIELDS = ("bio", "bio_source", "bio_verified", "bio_title", "bio_lang", "bio_date")
 
 def has_bio(meta):
     """A real bio, not just the line of facts written when nothing was found."""
@@ -1038,7 +1039,8 @@ def has_bio(meta):
 def write_files(meta, out_dir, args, name, rebuild):
     """The .txt and .jpg for one artist. The banner is only made again when
     `rebuild` (a new photo) or when the iPod has none. Returns how each went."""
-    credit = tr.credit(meta.get("bio_source") or "", meta.get("bio_lang"), meta.get("bio_title"))
+    credit = tr.credit(meta.get("bio_source") or "", meta.get("bio_lang"), meta.get("bio_title"),
+                       date=meta.get("bio_date") or meta.get("fetched"))
     text = f"{meta['artist']}\n{meta.get('subtitle', '')}\n\n{meta['bio']}\n" \
         + (f"{credit}\n" if credit and meta["bio"] else "")
     res = [write_if_ours(out_dir / f"{name}.txt", text.encode("utf-8"), meta, "txt_sha1")]

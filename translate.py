@@ -10,7 +10,7 @@ that has changed. Without a key in the settings file nothing is translated.
 """
 from __future__ import annotations
 
-import hashlib, json, re
+import hashlib, json, re, time
 
 import requests
 
@@ -141,19 +141,29 @@ class Translator:
         tmp.replace(self.cache_path)
 
 
-def credit(source, lang=None, title=None, shortened=False):
-    """The quiet last line naming where the text came from, as its licence asks."""
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+def retrieved(date=None):
+    """", retrieved 14 Nov 2026" for a YYYY-MM-DD date (default today), or "" for none."""
+    date = date or time.strftime("%Y-%m-%d")
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", date)
+    return f", retrieved {int(m[3])} {MONTHS[int(m[2]) - 1]} {m[1]}" if m else ""
+
+def credit(source, lang=None, title=None, shortened=False, date=None):
+    """The quiet last line naming where the text came from, as its licence asks,
+    and when it was taken (`date` as YYYY-MM-DD, default today)."""
     how = "shortened" if shortened else "adapted"
+    when = retrieved(date)
     if source.startswith("wikipedia"):
         if lang and lang != "en":
-            return f"# Machine-translated from {NAMES.get(lang, lang)} Wikipedia, CC BY-SA 4.0, {how}"
+            return f"# Machine-translated from {NAMES.get(lang, lang)} Wikipedia, CC BY-SA 4.0, {how}{when}"
         if title:
-            return f"# From the Wikipedia article \"{title}\", CC BY-SA 4.0, {how}"
-        return f"# From Wikipedia, CC BY-SA 4.0, {how}"
+            return f"# From the Wikipedia article \"{title}\", CC BY-SA 4.0, {how}{when}"
+        return f"# From Wikipedia, CC BY-SA 4.0, {how}{when}"
     if source.startswith("last"):
         if lang and lang != "en":
-            return f"# Machine-translated from Last.fm ({NAMES.get(lang, lang)}), CC BY-SA"
-        return "# From Last.fm, CC BY-SA"
+            return f"# Machine-translated from Last.fm ({NAMES.get(lang, lang)}), CC BY-SA{when}"
+        return f"# From Last.fm, CC BY-SA{when}"
     if source.startswith("discogs"):
-        return "# From Discogs"
+        return f"# From Discogs{when}"
     return ""

@@ -72,6 +72,22 @@ class Guess(unittest.TestCase):
             self.assertEqual(ln.guess_title(i, None), ("They Reminisce Over You", False))
 
 
+    def test_guessed_article_gives_the_year(self):
+        info = {"album": "Axis: Bold As Love", "artist": "Jimi Hendrix", "tracks": 13,
+                "label": "", "orig_year": "", "tag_year": "2010", "folder_artist": "Jimi Hendrix"}
+        item = {"id": "Q1", "claims": {"P577": [{"mainsnak": {"datavalue": {"value": {
+            "time": "+1967-12-01T00:00:00Z"}}}}]}}
+        found = {}
+        args = mock.Mock(translator=None, lastfm_key=None)
+        with mock.patch.object(ln, "release_group", return_value=None), \
+                mock.patch.object(ln, "guess_title", return_value=("Axis: Bold as Love", False)), \
+                mock.patch.object(ln, "english_notes", return_value=(["text"], "wikipedia")), \
+                mock.patch.object(ln, "title_item", return_value=item), \
+                mock.patch.object(ln, "wd_label", return_value=""):
+            ln.find_notes(info, {}, None, args, found)
+        self.assertEqual(ln.release_year(info, found), "1967")
+
+
 class Text(unittest.TestCase):
     def test_quotes_kept(self):
         self.assertEqual(ab.trim_bio('"Both Sides, Now" is a song by Joni Mitchell.'),

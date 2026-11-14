@@ -240,6 +240,13 @@ def pick_item(ents, info):
         return (order[k], gap, "enwiki" not in (e.get("sitelinks") or {}))
     return min(ok, key=rank)[0]
 
+def title_item(title, session):
+    """The Wikidata item of an English Wikipedia article, or None."""
+    r = ab.wiki_get(session, ab.WD_API, {"action": "wbgetentities", "sites": "enwiki",
+                                         "titles": title, "props": "claims", "format": "json"})
+    ents = (r.json().get("entities") or {}) if r.ok else {}
+    return next((e for q, e in ents.items() if q.startswith("Q")), None)
+
 def item_result(ent, session, info):
     q = ent.get("id")
     return {"q": q, "ent": ent, "sure": True,
@@ -552,6 +559,11 @@ def find_notes(info, who, session, args, found):
         if title:
             got = attempt("wikipedia", lambda: english_notes(title, session, False))
             if got:
+                # the article names the artist, so its item gives the year
+                ent = attempt("wikidata", lambda: title_item(title, session))
+                if ent:
+                    found.update(wd_year=wd_year(ent), q=ent.get("id"),
+                                 label="" if info.get("label") else wd_label(ent, session))
                 return got
     names = list(dict.fromkeys(n for n in (who.get("name"), ab.clean_artist(info["artist"]),
                                            info["folder_artist"]) if n))

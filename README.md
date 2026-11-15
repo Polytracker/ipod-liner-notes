@@ -244,7 +244,7 @@ save; it takes effect on the next run.
 | `bio recheck days` | `365` | Days before an artist's bio is checked again; `0` never checks. Artists who have died and bands that have split are never checked again |
 | `notes recheck days` | `365` | The same for an album's liner notes |
 | `banners` | `yes` | Fetch the banner pictures. `no` writes the text only |
-| `run on every install` | `no` | `yes` runs the tools every time a PodBox build is installed; `no` only when there is new music or the database was rebuilt. Running the `.bat` by hand always runs them |
+| `refresh after podbox install` | `no` | Whether installing a new PodBox build also fetches photos, bios and notes and updates the database and art cache, as running the `.bat` does. `no` does that only when there is new music or the database was rebuilt |
 | `discogs token` | empty | Your Discogs personal token, an extra source for both |
 | `deepl key` | empty | Your DeepL key, to translate bios and notes for artists who don't work in English (see **Translation**) |
 

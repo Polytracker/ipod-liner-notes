@@ -241,6 +241,19 @@ class Files(unittest.TestCase):
         got = ln.album_info(album, "Artist", seen)                    # reused: the files are empty
         self.assertEqual((got["album"], got["tracks"]), ("Album", 2))
 
+    def test_artist_photo_last_resort(self):
+        album = self.dir / "Band" / "2001 - Record"
+        album.mkdir(parents=True)
+        self.assertIsNone(ab.artist_photo([album], "Band"))
+        photo = self.dir / "Band" / "folder.jpg"
+        photo.write_bytes(b"photo")
+        self.assertEqual(ab.artist_photo([album], "Band"), b"photo")
+        flat = self.dir / "Band - Other"                       # no artist folder of its own
+        flat.mkdir()
+        self.assertIsNone(ab.artist_photo([flat], "Band"))
+        with mock.patch.object(ab.af, "is_standin", return_value=True):   # artist_fallback's cover
+            self.assertIsNone(ab.artist_photo([album], "Band"))
+
 
 class Credits(unittest.TestCase):
     def test_lines(self):

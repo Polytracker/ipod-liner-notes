@@ -924,6 +924,19 @@ def download_image(url, session):
         return r.content
     return None
 
+def artist_photo(folders, artist):
+    """The artist's own picture, folder.jpg in their artist folder, as
+    art_fetch.py writes it. None if there is none, or if it is an album cover
+    artist_fallback.py put there."""
+    for d in sorted({f.parent for f in folders}):
+        p = d / "folder.jpg"
+        if clean_artist(d.name) == artist and p.is_file() and not af.is_standin(p):
+            try:
+                return p.read_bytes()
+            except OSError:
+                pass
+    return None
+
 def find_photo(artist, who, adb, folders, session, args):
     """(image bytes, source) from the first source that has one, else (None, "")."""
     tries = []
@@ -953,6 +966,9 @@ def find_photo(artist, who, adb, folders, session, args):
             continue
         if data:
             return data, source
+    data = artist_photo(folders, artist)
+    if data:
+        return data, "artist photo"
     data, _ = album_cover(folders)
     return (data, "album cover") if data else (None, "")
 
@@ -1209,6 +1225,14 @@ def main(argv=None):
                           f"photo: {meta['photo_source'] or 'none'}")
                 if not (meta.get("bio") or meta.get("subtitle")):
                     continue
+                if not new_photo and not args.no_banners and meta.get("photo_source") in ("album cover", ""):
+                    # art_fetch.py may have found a photo since: no download needed
+                    photo = artist_photo(artists[artist], artist)
+                    if photo:
+                        was = "the album cover" if meta["photo_source"] else "none"
+                        atomic_write(CACHE / f"{name}.jpg", photo)
+                        meta["photo_source"], new_photo = "artist photo", True
+                        print(f"{i:4d}/{len(names)} {artist}\n     photo: artist photo, in place of {was}")
                 res = write_files(meta, out_dir, args, name, new_photo)
                 save_json(mp, meta)
                 if "kept" in res:

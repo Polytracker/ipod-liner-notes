@@ -268,8 +268,11 @@ artist yours is: when several share the name (a singer called Dijon, and the
 city), it picks the one whose albums match your album folders. A very long
 bio is swapped for a much shorter one from another source when there is one.
 
-Photos come from TheAudioDB, Deezer, Discogs or Wikipedia, or the cover of
-one of the artist's albums when none has one. What was downloaded is kept on
+Photos come from TheAudioDB, Deezer, Discogs or Wikipedia. When none has
+one, the artist's own `folder.jpg` from step 1 is used, unless it is an album
+cover step 2 put there; failing that, the cover of one of their albums. An
+artist whose banner is an album cover gets their `folder.jpg` instead as soon
+as step 1 finds them a photo, with nothing downloaded again. What was downloaded is kept on
 the PC (in `%APPDATA%\RockboxArtistArt\bios`), so a later run only looks up
 new artists, plus any active artist whose bio is over a year old (change that
 with `bio recheck days` in the settings file). Artists who have died and bands

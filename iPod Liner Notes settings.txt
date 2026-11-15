@@ -32,6 +32,11 @@ notes recheck days = 365
 # the iPod are fetched either way.
 banners = yes
 
+# yes or no: run these tools every time a new PodBox build is installed. no
+# runs them only when the iPod has new music or its database had to be
+# rebuilt. Running this file by hand always runs them.
+run on every install = no
+
 # Your Discogs personal token, an extra source. Leave empty to skip Discogs.
 discogs token =
 

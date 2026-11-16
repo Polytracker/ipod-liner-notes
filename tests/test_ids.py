@@ -376,3 +376,15 @@ class Titles(unittest.TestCase):
                  "tracks": [{"title": "America (2003 Remaster)"}, {"title": "Siberian Khatru (2003 Remaster)"}]}
         self.assertEqual(ids.edition_year(album), 2003)
         self.assertIsNone(ids.edition_year({"album": "1999", "tracks": [{"title": "1999"}]}))
+
+
+class FromDiscogs(unittest.TestCase):
+    def test_musicbrainz_found_through_discogs_master(self):
+        a = album("The Durutti Column", "The Best of Durutti Column", ORIGINAL)
+        site = FakeSite([("discogs.com/release/5", {"relations": []}),
+                         ("discogs.com/master/9", {"relations": [{"release_group": {"id": "RG"}}]}),
+                         ("'release-group': 'RG'", {"releases": [{"id": "R-durutti"}]}),
+                         ("release/R-durutti", mb_release("R-durutti", "The Best Of", "The Durutti Column", ORIGINAL)),
+                         ("release-group/RG", {"relations": []})])
+        r = ids.MusicBrainz(site, FakeSite([])).from_discogs(a, {"id": 5, "master": 9}, [])
+        self.assertEqual((r["id"], r["rung"]), ("R-durutti", "discogs link"))

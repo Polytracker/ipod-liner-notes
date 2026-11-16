@@ -683,6 +683,24 @@ class MusicBrainz:
             return self.finish(*partial), failed
         return None, failed
 
+    def from_discogs(self, album, d, failed):
+        """After Discogs found the album and MusicBrainz didn't: the releases
+        MusicBrainz links to that Discogs release, or to its master."""
+        tried = set()
+        rids = self.url_releases(f"https://www.discogs.com/release/{d['id']}")
+        if not rids and d.get("master"):
+            data = self.site.get(f"{MB}url", {"resource": f"https://www.discogs.com/master/{d['master']}",
+                                              "inc": "release-group-rels", "fmt": "json"}) or {}
+            for rg in [(x.get("release_group") or {}).get("id") for x in data.get("relations") or []][:1]:
+                if rg:
+                    browse = self.site.get(f"{MB}release", {"release-group": rg, "fmt": "json", "limit": 25}) or {}
+                    rids = self.plausible(album, browse.get("releases") or [])
+        r, rel = self.best(album, [x for x in rids if x], "discogs link", tried, failed)
+        if not r:
+            return None
+        save_release("mbrel", r["id"], rel)
+        return self.finish(r, rel)
+
     def isrc_releases(self, album):
         """The releases a few of the tracks' recordings share, the likeliest first."""
         isrcs = [t["isrc"] for t in album["tracks"] if t["isrc"]]
@@ -1013,6 +1031,10 @@ def identify_all(albums, token, refresh=False, retry=False, progress=True):
                     if art.get("id"):
                         known.setdefault(album["folder_artist"], []).append(art["id"])
                 rec.update(discogs=d, discogs_failed=dfailed[:5], discogs_tried=True)
+                if d and not r:
+                    found = mb.from_discogs(album, d, failed)
+                    if found:
+                        rec.update(mb=found, mb_failed=[])
             path = record_path(album)
             if path:
                 path.parent.mkdir(parents=True, exist_ok=True)

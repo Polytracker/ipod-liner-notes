@@ -151,7 +151,8 @@ def load_records():
         rec = ab.load_json(path)
         if rec and rec.get("key"):
             recs[rec["key"]] = rec
-    return recs
+    keys = ids.current_keys()          # leave out albums since deleted or renamed
+    return {k: r for k, r in recs.items() if k in keys} if keys else recs
 
 def main():
     records = load_records()

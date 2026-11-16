@@ -58,6 +58,7 @@ UA = "ipod-liner-notes/0.2 ( https://github.com/Polytracker/ipod-liner-notes )"
 CACHE = ab.CACHE.parent / "ids"
 RELEASES = CACHE / "releases"   # the matched releases, compressed, shared by the credits and links steps
 RELEASE_DAYS = 180              # how long a saved release is reused before it's fetched again
+LIBRARY = CACHE.parent / "library.json"   # the album keys found by the last full scan
 MISSING_LIST = HERE / "Albums not identified.txt"
 RETRY_DAYS = 30
 VARIOUS = "89ad4ac3-39f7-470e-963a-56509c546377"
@@ -971,6 +972,11 @@ def record_path(album):
     name = ab.safe_name(album["key"])
     return CACHE / f"{name}.json" if name else None
 
+def current_keys():
+    """The albums in the library at the last full scan, or None if never."""
+    data = ab.load_json(LIBRARY) if LIBRARY.exists() else None
+    return set(data["keys"]) if data and data.get("keys") else None
+
 def load(album):
     """The saved record for an album (a scan() entry), or None."""
     path = record_path(album)
@@ -1098,6 +1104,10 @@ def main(argv=None):
     print(f"Reading tags in {music}...")
     albums = scan(music, args.only)
     identify_all(albums, args.discogs_token, args.refresh, args.retry_not_found)
+    if not args.only:
+        # the albums in the library now: later steps leave out records of
+        # albums since deleted or renamed, so nothing links to them
+        ab.save_json(LIBRARY, {"checked": int(time.time()), "keys": sorted(a["key"] for a in albums)})
     recs = [load(a) or {} for a in albums]
     mb_n = sum(1 for r in recs if r.get("mb"))
     dc_n = sum(1 for r in recs if r.get("discogs"))

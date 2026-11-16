@@ -281,15 +281,16 @@ def clean_title(s):
     return fold(s)
 
 def search_artists(name):
-    """Spellings of an album artist worth searching under: as tagged, then
-    the first name of a list ("Ryo Fukui, 福居良" -> "Ryo Fukui"), then
-    without a trailing non-Latin repeat."""
+    """Spellings of an album artist worth searching under: as tagged, then,
+    only when the name also carries a non-Latin form ("Ryo Fukui, 福居良"),
+    its Latin part on its own ("Ryo Fukui"). Names like "Earth, Wind & Fire"
+    or "Tyler, the Creator" are never split."""
     out = [name]
-    first = re.split(r"\s*(?:,|;|/|\bfeat\.?|\bft\.)\s*", name or "")[0].strip()
-    out.append(first)
-    latin = re.sub(r"[^\x00-\u024f]+", " ", first).strip()
-    if latin and latin != first:
-        out.append(latin)
+    if re.search(r"[^\x00-\u024f\u2000-\u206f]", name or ""):
+        latin = re.sub(r"[^\x00-\u024f]+", " ", name)
+        latin = re.sub(r"\s*[,;/]\s*$|^\s*[,;/]\s*", "", latin.strip()).strip(" ,;/")
+        if latin and re.search(r"[A-Za-z]", latin):
+            out.append(latin)
     return [a for a in dict.fromkeys(out) if a]
 
 def plain_album(s):
@@ -790,7 +791,7 @@ class Discogs:
         rids = [] if main_v is not None and version_rank(main_v)[0] else [main]
         return [r for r in dict.fromkeys(rids + [v.get("id") for v in ranked][:2]) if r][:3]
 
-    def identify(self, album, links):
+    def identify(self, album, links, known_artists=()):
         """(result, failed attempts), from the best evidence down."""
         seen, failed = set(), []
         steps = []
@@ -830,17 +831,23 @@ class Discogs:
                 return r, failed
         # last: the artist's own discography, for releases the search doesn't
         # find (artist known by another name, or titles spelt differently)
-        for who in search_artists(album["artist"])[-1:]:
-            artist = ((self.site.get(f"{DISCOGS}database/search", {"q": who, "type": "artist", "per_page": 3})
-                       or {}).get("results") or [])
-            for a in [a for a in artist if fold(who) == fold(a.get("title", ""))][:2]:
-                listing = self.site.get(f"{DISCOGS}artists/{a['id']}/releases",
-                                        {"per_page": 100, "sort": "year"}) or {}
-                hits = [x for x in listing.get("releases") or []
-                        if x.get("role", "Main") == "Main" and same_album(title, x.get("title", ""))]
-                r = self.best(album, self.candidates(hits), "artist discography", seen, failed, True)
-                if r:
-                    return r, failed
+        # the artist's Discogs ID is best taken from their other albums already
+        # identified (it picks the right "Eliza" out of dozens); otherwise from
+        # an artist search, trying up to three of the exact name
+        artist_ids = list(dict.fromkeys(known_artists))[:2]
+        if not artist_ids:
+            who = search_artists(album["artist"])[-1]
+            found = ((self.site.get(f"{DISCOGS}database/search", {"q": who, "type": "artist", "per_page": 10})
+                      or {}).get("results") or [])
+            artist_ids = [a["id"] for a in found if fold(who) == fold(a.get("title", ""))][:3]
+        for artist_id in artist_ids:
+            listing = self.site.get(f"{DISCOGS}artists/{artist_id}/releases",
+                                    {"per_page": 100, "sort": "year"}) or {}
+            hits = [x for x in listing.get("releases") or []
+                    if x.get("role", "Main") == "Main" and same_album(title, x.get("title", ""))]
+            r = self.best(album, self.candidates(hits), "artist discography", seen, failed, True)
+            if r:
+                return r, failed
         return None, failed
 
     def candidates(self, hits):
@@ -889,6 +896,12 @@ def identify_all(albums, token, refresh=False, retry=False, progress=True):
     mb = MusicBrainz(mb_site, deezer)
     dc = Discogs(Site(1.1, {"Authorization": f"Discogs token={token}"})) if token else None
     done_mb, lock = {}, threading.Lock()
+    # Discogs artist IDs already known for each folder artist, from albums identified before
+    known = {}
+    for a in albums:
+        for art in ((load(a) or {}).get("discogs") or {}).get("artists") or []:
+            if art.get("id") and art["id"] not in (194, 355):
+                known.setdefault(a["folder_artist"], []).append(art["id"])
     stats = {"mb": 0, "dc": 0}
 
     def run_mb():
@@ -906,7 +919,10 @@ def identify_all(albums, token, refresh=False, retry=False, progress=True):
             rec = {"format": FORMAT, "sig": signature(album), "checked": int(time.time()),
                    "key": album["key"], "mb": r, "mb_failed": failed[:5]}
             if dc:
-                d, dfailed = dc.identify(album, (r or {}).get("discogs") or {})
+                d, dfailed = dc.identify(album, (r or {}).get("discogs") or {}, known.get(album["folder_artist"], ()))
+                for art in (d or {}).get("artists") or []:
+                    if art.get("id"):
+                        known.setdefault(album["folder_artist"], []).append(art["id"])
                 rec.update(discogs=d, discogs_failed=dfailed[:5], discogs_tried=True)
             path = record_path(album)
             if path:

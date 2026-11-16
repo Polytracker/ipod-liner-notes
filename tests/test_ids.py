@@ -287,6 +287,9 @@ class NameSearch(unittest.TestCase):
     def test_artist_spellings(self):
         self.assertEqual(ids.search_artists("Ryo Fukui, 福居良"), ["Ryo Fukui, 福居良", "Ryo Fukui"])
         self.assertEqual(ids.search_artists("Pete Rock & C.L. Smooth"), ["Pete Rock & C.L. Smooth"])
+        self.assertEqual(ids.search_artists("Earth, Wind & Fire"), ["Earth, Wind & Fire"])      # never split
+        self.assertEqual(ids.search_artists("Tyler, the Creator"), ["Tyler, the Creator"])
+        self.assertEqual(ids.search_artists("Beyoncé"), ["Beyoncé"])                            # accents are Latin
         self.assertEqual(ids.search_artists("福居良 Ryo Fukui"), ["福居良 Ryo Fukui", "Ryo Fukui"])
 
     def test_discogs_artist_discography(self):
@@ -302,3 +305,16 @@ class NameSearch(unittest.TestCase):
                          ("releases/70", rel)])
         r, _ = ids.Discogs(site).identify(a, {})
         self.assertEqual((r["id"], r["rung"]), (70, "artist discography"))
+
+    def test_discography_of_an_artist_already_known(self):
+        a = album("Eliza", "Live at RAK", ORIGINAL[:6])
+        rel = {"title": "Live At RAK", "artists": [{"name": "Eliza (26)"}],
+               "tracklist": [{"title": t, "duration": f"{n // 60}:{n % 60:02d}", "position": str(i + 1)}
+                             for i, (t, n, _) in enumerate(ORIGINAL[:6])]}
+        site = FakeSite([("database/search", {"results": []}),
+                         ("artists/10886986/releases", {"releases": [
+                             {"id": 70, "type": "release", "role": "Main", "title": "Live At RAK"}]}),
+                         ("releases/70", rel)])
+        r, _ = ids.Discogs(site).identify(a, {}, known_artists=[10886986])
+        self.assertEqual((r["id"], r["rung"]), (70, "artist discography"))
+        self.assertFalse(any("'type': 'artist'" in repr(p) for _, p in site.asked))   # no artist search needed

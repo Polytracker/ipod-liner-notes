@@ -748,7 +748,10 @@ class Discogs:
     def attempt(self, album, rid, rung, seen, need_artist=False):
         if not rid or rid in seen:
             return None
-        need_artist = need_artist or rung in ("name search", "artist discography")
+        # a name search must match the artist's name; a discography doesn't
+        # need to, since the artist was picked by ID ("Sean Ono Lennon" is
+        # "Sean Lennon" on Discogs)
+        need_artist = (need_artist or rung == "name search") and rung != "artist discography"
         seen.add(rid)
         rel = saved_release("dcrel", rid) or self.site.get(f"{DISCOGS}releases/{rid}")
         if not rel:
@@ -784,7 +787,11 @@ class Discogs:
     def master_releases(self, master_id):
         """The master's main release, then its plainest editions."""
         master = self.site.get(f"{DISCOGS}masters/{master_id}") or {}
-        versions = self.site.get(f"{DISCOGS}masters/{master_id}/versions", {"per_page": 50}) or {}
+        # CD editions asked for by name: a famous album can have hundreds of
+        # editions, and the first page of them is all 1970s vinyl
+        versions = self.site.get(f"{DISCOGS}masters/{master_id}/versions", {"per_page": 50, "format": "CD"}) or {}
+        if not versions.get("versions"):
+            versions = self.site.get(f"{DISCOGS}masters/{master_id}/versions", {"per_page": 50}) or {}
         ranked = sorted(versions.get("versions") or [], key=version_rank)
         main = master.get("main_release")
         main_v = next((v for v in versions.get("versions") or [] if v.get("id") == main), None)

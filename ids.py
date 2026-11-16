@@ -952,10 +952,12 @@ def identify_all(albums, token, refresh=False, retry=False, progress=True):
     threads = [threading.Thread(target=run_mb, daemon=True), threading.Thread(target=run_dc, daemon=True)]
     for t in threads:
         t.start()
+    shown = -1
     while any(t.is_alive() for t in threads):
         time.sleep(1)
-        if progress:
-            print(f"\r  {stats['dc']}/{len(todo)} albums done", end="", flush=True)
+        if progress and stats["dc"] != shown:      # only when it changes, so a log isn't one line a second
+            shown = stats["dc"]
+            print(f"\r  {shown}/{len(todo)} albums done", end="", flush=True)
     if progress:
         print()
         print(f"  {mb_site.count} MusicBrainz, {dc.site.count if dc else 0} Discogs and {deezer.count} Deezer"

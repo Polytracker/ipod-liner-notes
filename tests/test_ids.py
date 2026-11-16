@@ -56,10 +56,10 @@ class Check(unittest.TestCase):
         deluxe = ORIGINAL + [(f"Demo {i}", 150, "") for i in range(9)]
         a = album("Elliott Smith", "XO (Deluxe Edition)", deluxe)
         self.assertEqual(ids.check(a, release(["Elliott Smith"], "XO", ORIGINAL), True)[2], "superset")
-        # never a single, another album, or an original with a track missing
+        # never a single, another album, or an original missing more than one track in ten
         self.assertFalse(ids.check(a, release(["Elliott Smith"], "Waltz #2 (XO)", ORIGINAL[:3]), True)[0])
         self.assertFalse(ids.check(a, release(["Elliott Smith"], "Either/Or", ORIGINAL), True)[0])
-        a2 = album("Elliott Smith", "XO (Deluxe Edition)", deluxe[1:])
+        a2 = album("Elliott Smith", "XO (Deluxe Edition)", deluxe[2:])       # two originals missing: under 90%
         self.assertFalse(ids.check(a2, release(["Elliott Smith"], "XO", ORIGINAL), True)[0])
 
     def test_live_album_split_differently(self):
@@ -259,3 +259,25 @@ class FewerRequests(unittest.TestCase):
         r, _ = ids.MusicBrainz(site, FakeSite([])).identify(a)
         self.assertEqual((r["id"], r["how"]), ("R-orig", "superset"))
         self.assertFalse(any("release:" in repr(p) for _, p in site.asked))
+
+
+class Editions(unittest.TestCase):
+    def test_cd_before_vinyl_and_cassette(self):
+        vs = [{"id": 1, "format": "Vinyl, LP, Album", "released": "1984"},
+              {"id": 2, "format": "Cassette, Album", "released": "1984"},
+              {"id": 3, "format": "CD, Album", "released": "1990"},
+              {"id": 4, "format": "CD, Album, Promo", "released": "1984"}]
+        self.assertEqual([v["id"] for v in sorted(vs, key=ids.version_rank)], [3, 1, 2, 4])
+
+    def test_index_track_counts_once(self):
+        rel = {"tracklist": [{"type_": "heading", "title": "Side A"},
+                             {"type_": "index", "title": "Close to the Edge",
+                              "sub_tracks": [{"title": "I"}, {"title": "II"}]},
+                             {"type_": "track", "title": "And You and I"}]}
+        self.assertEqual([t["title"] for t in ids.discogs_tracks(rel)], ["Close to the Edge", "And You and I"])
+
+    def test_deluxe_with_a_retitled_track(self):
+        deluxe = [(t if i != 3 else "Something else entirely", n, c) for i, (t, n, c) in enumerate(ORIGINAL)] + \
+                 [(f"Demo {i}", 150, "") for i in range(9)]
+        a = album("Elliott Smith", "XO (Deluxe Edition)", deluxe)
+        self.assertEqual(ids.check(a, release(["Elliott Smith"], "XO", ORIGINAL), True)[2], "superset")

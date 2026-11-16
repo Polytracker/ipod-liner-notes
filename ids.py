@@ -358,9 +358,9 @@ def check(album, remote, strong=False, need_artist=False):
         if len(found) >= 0.9 * len(tracks) and len(found) >= 2 and extra <= max(5, len(tracks) // 2):
             ways.append(("superset", [(b, a) for a, b in found], False))
         elif extra > max(5, len(tracks) // 2) and title_match and len(tracks) >= max(5, 0.4 * len(local)) \
-                and len(found) == len(tracks):
+                and len(found) >= 0.9 * len(tracks):
             # a deluxe/expanded copy of an album only listed in its original
-            # form: every original track must be in it, under the same album
+            # form: nearly every original track (90%) must be in it, under the same album
             # title, and the original must be a real album (5+ tracks, and at
             # least 40% of yours), so a single or EP never passes
             ways.append(("superset", [(b, a) for a, b in found], False))
@@ -705,6 +705,12 @@ def discogs_edition(rel):
     return ", ".join(x for x in (rel.get("title") or "", str(rel.get("year") or "") if rel.get("year") else "",
                                  " + ".join(fmts), rel.get("country") or "") if x)
 
+def discogs_tracks(rel):
+    """A release's tracks. Headings are skipped; an "index" track (a long piece
+    listed with its parts, common on vinyl) counts as one track, as it is on a
+    download."""
+    return [t for t in rel.get("tracklist") or [] if t.get("type_", "track") in ("track", "index")]
+
 ODD_EDITION = re.compile(r"promo|unofficial|test pressing|white label|sampler|bootleg|advance|acetate|"
                          r"transcription|club edition|misprint", re.I)
 
@@ -714,7 +720,11 @@ def version_rank(v):
     because the edition is printed on the page."""
     fmt = " ".join([v.get("format") or ""] + list(v.get("major_formats") or []))
     odd = bool(ODD_EDITION.search(fmt)) or (v.get("status") or "Accepted") not in ("Accepted", "")
-    kind = 0 if re.search(r"\bCD\b|vinyl|\bLP\b|file", fmt, re.I) else 1 if not re.search(r"cassette|8-track|reel|minidisc", fmt, re.I) else 2
+    # CDs first: they usually have the same track list as a download, where
+    # vinyl often splits or drops tracks; then files, then vinyl, then the rest
+    kind = (0 if re.search(r"\bCD\b", fmt) else 1 if re.search(r"\bfile\b", fmt, re.I)
+            else 2 if re.search(r"vinyl|\bLP\b", fmt, re.I)
+            else 4 if re.search(r"cassette|8-track|reel|minidisc", fmt, re.I) else 3)
     year = re.match(r"\d{4}", str(v.get("released") or "")) or None
     return (odd, kind, int(year.group(0)) if year else 9999)
 
@@ -729,7 +739,7 @@ class Discogs:
         rel = saved_release("dcrel", rid) or self.site.get(f"{DISCOGS}releases/{rid}")
         if not rel:
             return None
-        tracks = [t for t in rel.get("tracklist") or [] if t.get("type_", "track") == "track"]
+        tracks = discogs_tracks(rel)
         remote = {"tracks": [{"i": i, "len": mmss(t.get("duration")), "title": t.get("title", ""),
                               "position": t.get("position", ""), "isrcs": set()} for i, t in enumerate(tracks)],
                   "artists": [a.get("anv") or a.get("name", "") for a in rel.get("artists") or []]
@@ -883,12 +893,13 @@ def identify_all(albums, token, refresh=False, retry=False, progress=True):
     return {a["key"]: load(a) for a in todo}
 
 def write_missing(albums):
-    lines = []
+    lines, count = [], 0
     for a in albums:
         rec = load(a) or {}
         gaps = [s for s, k in (("MusicBrainz", "mb"), ("Discogs", "discogs")) if not rec.get(k)
                 and (k == "mb" or rec.get("discogs_tried"))]
         if gaps:
+            count += 1
             ids = [k for k, v in (("barcode", a["barcode"]), ("ISRC", any(t["isrc"] for t in a["tracks"])),
                                   ("store link", a["links"]), ("catalogue number", a["catno"])) if v]
             lines.append(f"{a['key']}  (not on {' or '.join(gaps)}; tags have {', '.join(ids) or 'no IDs'})")
@@ -899,7 +910,7 @@ def write_missing(albums):
     MISSING_LIST.write_text(
         "Albums not identified. Tagging them in Picard (with its audio scan) adds MusicBrainz IDs,\n"
         "which the next run picks up. Under each: the editions that were tried and why they didn't match.\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
-    return len(lines)
+    return count
 
 def main(argv=None):
     conf = ab.settings()

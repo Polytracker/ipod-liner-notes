@@ -318,3 +318,20 @@ class NameSearch(unittest.TestCase):
         r, _ = ids.Discogs(site).identify(a, {}, known_artists=[10886986])
         self.assertEqual((r["id"], r["rung"]), (70, "artist discography"))
         self.assertFalse(any("'type': 'artist'" in repr(p) for _, p in site.asked))   # no artist search needed
+
+    def test_right_artist_among_same_names(self):
+        a = album("Eliza", "Live at RAK", ORIGINAL[:6])
+        rel = {"title": "Live At RAK", "artists": [{"name": "Eliza (26)"}],
+               "tracklist": [{"title": t, "duration": f"{n // 60}:{n % 60:02d}", "position": str(i + 1)}
+                             for i, (t, n, _) in enumerate(ORIGINAL[:6])]}
+        site = FakeSite([("'type': 'artist'", {"results": [{"id": 3, "title": "Eliza (3)"},
+                                                           {"id": 26, "title": "Eliza (26)"}]}),
+                         ("database/search", {"results": []}),
+                         ("artists/3/releases", {"releases": [{"id": 1, "role": "Main", "title": "Something Else"}]}),
+                         ("artists/26/releases", {"releases": [
+                             {"id": 70, "type": "release", "role": "Main", "title": "Live At RAK"},
+                             {"id": 71, "type": "release", "role": "Main", "title": "A Sky Without Stars"}]}),
+                         ("releases/70", rel)])
+        r, _ = ids.Discogs(site).identify(a, {}, sibling_titles=["Live at RAK", "A Sky Without Stars"])
+        self.assertEqual((r["id"], r["rung"]), (70, "artist discography"))
+        self.assertEqual(sum("releases/" in u and "artists/" not in u for u, _ in site.asked), 1)  # one release fetched

@@ -280,6 +280,18 @@ def clean_title(s):
     s = re.sub(rf"\s+[-–]\s+[^-–]*({EXTRA}).*$", "", s, flags=re.I)
     return fold(s)
 
+def search_artists(name):
+    """Spellings of an album artist worth searching under: as tagged, then
+    the first name of a list ("Ryo Fukui, 福居良" -> "Ryo Fukui"), then
+    without a trailing non-Latin repeat."""
+    out = [name]
+    first = re.split(r"\s*(?:,|;|/|\bfeat\.?|\bft\.)\s*", name or "")[0].strip()
+    out.append(first)
+    latin = re.sub(r"[^\x00-\u024f]+", " ", first).strip()
+    if latin and latin != first:
+        out.append(latin)
+    return [a for a in dict.fromkeys(out) if a]
+
 def plain_album(s):
     """An album title without "(Deluxe Edition)" and the like, for searching."""
     return re.sub(rf"\s*[\(\[][^\)\]]*({EXTRA})[^\)\]]*[\)\]]", "", s or "", flags=re.I).strip() or s
@@ -604,8 +616,8 @@ class MusicBrainz:
         if album["catno"]:
             steps.append(("catalogue number", lambda: self.plausible(album, self.search(
                 f"catno:{q(album['catno'])}" + (f" AND label:{q(album['label'])}" if album["label"] else "")))))
-        steps.append(("name search", lambda: self.plausible(album, self.search(
-            f"release:{q(plain_album(album['album']))} AND artist:{q(album['artist'])}"), min_score=80)))
+        steps.append(("name search", lambda: self.plausible(album, [r for who in search_artists(album["artist"])[:2]
+            for r in self.search(f"release:{q(plain_album(album['album']))} AND artist:{q(who)}")], min_score=80)))
         partial, extra = None, 0
         for rung, rids in steps:
             if partial:
@@ -735,6 +747,7 @@ class Discogs:
     def attempt(self, album, rid, rung, seen, need_artist=False):
         if not rid or rid in seen:
             return None
+        need_artist = need_artist or rung in ("name search", "artist discography")
         seen.add(rid)
         rel = saved_release("dcrel", rid) or self.site.get(f"{DISCOGS}releases/{rid}")
         if not rel:
@@ -808,13 +821,39 @@ class Discogs:
             partial = partial or r
         if partial:
             return partial, failed
-        found = self.site.get(f"{DISCOGS}database/search", {"artist": album["artist"],
-                              "release_title": plain_album(album["album"]), "type": "master", "per_page": 3}) or {}
-        for hit in (found.get("results") or [])[:2]:
-            r = self.best(album, self.master_releases(hit.get("id"))[:2], "name search", seen, failed, True)
+        title = plain_album(album["album"])
+        for who in search_artists(album["artist"])[:2]:
+            found = self.site.get(f"{DISCOGS}database/search", {"artist": who, "release_title": title,
+                                                                "per_page": 5}) or {}
+            r = self.best(album, self.candidates(found.get("results") or []), "name search", seen, failed, True)
             if r:
                 return r, failed
+        # last: the artist's own discography, for releases the search doesn't
+        # find (artist known by another name, or titles spelt differently)
+        for who in search_artists(album["artist"])[-1:]:
+            artist = ((self.site.get(f"{DISCOGS}database/search", {"q": who, "type": "artist", "per_page": 3})
+                       or {}).get("results") or [])
+            for a in [a for a in artist if fold(who) == fold(a.get("title", ""))][:2]:
+                listing = self.site.get(f"{DISCOGS}artists/{a['id']}/releases",
+                                        {"per_page": 100, "sort": "year"}) or {}
+                hits = [x for x in listing.get("releases") or []
+                        if x.get("role", "Main") == "Main" and same_album(title, x.get("title", ""))]
+                r = self.best(album, self.candidates(hits), "artist discography", seen, failed, True)
+                if r:
+                    return r, failed
         return None, failed
+
+    def candidates(self, hits):
+        """Release IDs from search or discography results: a release as it
+        is, a master by its main release. At most three."""
+        out = []
+        for h in hits[:3]:
+            if h.get("type") == "master":
+                out.append(h.get("main_release") or (self.site.get(f"{DISCOGS}masters/{h.get('id')}") or {})
+                           .get("main_release"))
+            else:
+                out.append(h.get("id"))
+        return [r for r in out if r]
 
 
 # ================================================================ saved results

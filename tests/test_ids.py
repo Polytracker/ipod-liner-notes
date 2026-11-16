@@ -281,3 +281,24 @@ class Editions(unittest.TestCase):
                  [(f"Demo {i}", 150, "") for i in range(9)]
         a = album("Elliott Smith", "XO (Deluxe Edition)", deluxe)
         self.assertEqual(ids.check(a, release(["Elliott Smith"], "XO", ORIGINAL), True)[2], "superset")
+
+
+class NameSearch(unittest.TestCase):
+    def test_artist_spellings(self):
+        self.assertEqual(ids.search_artists("Ryo Fukui, 福居良"), ["Ryo Fukui, 福居良", "Ryo Fukui"])
+        self.assertEqual(ids.search_artists("Pete Rock & C.L. Smooth"), ["Pete Rock & C.L. Smooth"])
+        self.assertEqual(ids.search_artists("福居良 Ryo Fukui"), ["福居良 Ryo Fukui", "Ryo Fukui"])
+
+    def test_discogs_artist_discography(self):
+        a = album("Eliza", "Live at RAK", ORIGINAL[:6])
+        rel = {"title": "Live At RAK", "artists": [{"name": "Eliza (26)"}],
+               "tracklist": [{"title": t, "duration": f"{n // 60}:{n % 60:02d}", "position": str(i + 1)}
+                             for i, (t, n, _) in enumerate(ORIGINAL[:6])]}
+        site = FakeSite([("'type': 'artist'", {"results": [{"id": 1, "title": "Eliza (26)"}, {"id": 2, "title": "Elizabeth"}]}),
+                         ("database/search", {"results": []}),
+                         ("artists/1/releases", {"releases": [
+                             {"id": 70, "type": "release", "role": "Main", "title": "Live At RAK"},
+                             {"id": 71, "type": "release", "role": "Appearance", "title": "Live at RAK"}]}),
+                         ("releases/70", rel)])
+        r, _ = ids.Discogs(site).identify(a, {})
+        self.assertEqual((r["id"], r["rung"]), (70, "artist discography"))

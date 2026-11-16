@@ -280,6 +280,15 @@ def clean_title(s):
     s = re.sub(rf"\s+[-–]\s+[^-–]*({EXTRA}).*$", "", s, flags=re.I)
     return fold(s)
 
+def is_single(album):
+    """A single or short EP rather than an album: four tracks or fewer and
+    under 25 minutes in all, or one track named like the release."""
+    tracks = album["tracks"]
+    total = sum(t["length"] or 0 for t in tracks)
+    if len(tracks) <= 4 and total and total < 25 * 60:
+        return True
+    return len(tracks) <= 2 and any(clean_title(t["title"]) == clean_title(album["album"]) for t in tracks)
+
 def search_artists(name):
     """Spellings of an album artist worth searching under: as tagged, then,
     only when the name also carries a non-Latin form ("Ryo Fukui, 福居良"),
@@ -363,7 +372,8 @@ def check(album, remote, strong=False, need_artist=False):
         if coded and len(coded) >= 0.8 * len(local) and len(found) == len(coded):
             ways.append(("subset", found, True))
         found = by_title(local, tracks)
-        if (strong or title_match) and len(found) >= 0.9 * len(local) and len(found) >= 2:
+        enough = 1 if len(local) <= 2 and title_match and len(tracks) <= 4 else 2   # a single's A-side
+        if (strong or title_match) and len(found) >= 0.9 * len(local) and len(found) >= enough:
             ways.append(("subset", found, False))
     if len(local) > len(tracks) and (strong or title_match):
         found = by_title(tracks, local)
@@ -617,8 +627,11 @@ class MusicBrainz:
         if album["catno"]:
             steps.append(("catalogue number", lambda: self.plausible(album, self.search(
                 f"catno:{q(album['catno'])}" + (f" AND label:{q(album['label'])}" if album["label"] else "")))))
+        single = " AND primarytype:single" if is_single(album) else ""
         steps.append(("name search", lambda: self.plausible(album, [r for who in search_artists(album["artist"])[:2]
-            for r in self.search(f"release:{q(plain_album(album['album']))} AND artist:{q(who)}")], min_score=80)))
+            for r in self.search(f"release:{q(plain_album(album['album']))} AND artist:{q(who)}{single}")
+                     + (self.search(f"release:{q(plain_album(album['album']))} AND artist:{q(who)}")
+                        if single else [])], min_score=80)))
         partial, extra = None, 0
         for rung, rids in steps:
             if partial:
@@ -831,8 +844,12 @@ class Discogs:
             return partial, failed
         title = plain_album(album["album"])
         for who in search_artists(album["artist"])[:2]:
-            found = self.site.get(f"{DISCOGS}database/search", {"artist": who, "release_title": title,
-                                                                "per_page": 5}) or {}
+            params = {"artist": who, "release_title": title, "per_page": 5}
+            if is_single(album):
+                params["format"] = "Single"      # a single's title is often an album track's too
+            found = self.site.get(f"{DISCOGS}database/search", params) or {}
+            if not found.get("results") and "format" in params:
+                found = self.site.get(f"{DISCOGS}database/search", dict(params, format=None)) or {}
             r = self.best(album, self.candidates(found.get("results") or []), "name search", seen, failed, True)
             if r:
                 return r, failed

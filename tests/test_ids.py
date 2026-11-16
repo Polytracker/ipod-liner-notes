@@ -334,3 +334,22 @@ class NameSearch(unittest.TestCase):
                          ("releases/70", rel)])
         r, _ = ids.Discogs(site).identify(a, {}, sibling_titles=["Live at RAK", "A Sky Without Stars"])
         self.assertEqual((r["id"], r["rung"]), (70, "artist discography"))
+
+
+class Singles(unittest.TestCase):
+    def test_spotted(self):
+        self.assertTrue(ids.is_single(album("x", "Mother (Ultimate Mix)", [("Mother (Ultimate Mix)", 340, "")])))
+        self.assertTrue(ids.is_single(album("x", "Falling out of Love", [("Falling out of Love", 200, ""),
+                                                                         ("B-side", 180, "")])))
+        self.assertFalse(ids.is_single(album("x", "XO", ORIGINAL)))
+        self.assertFalse(ids.is_single(album("x", "Close to the Edge", [("Close to the Edge", 1100, ""),
+                                                                        ("And You and I", 600, ""),
+                                                                        ("Siberian Khatru", 540, "")])))  # 37 min
+
+    def test_a_side_on_a_two_track_single(self):
+        a = album("John Lennon", "Mother", [("Mother", 334, "")])
+        r = release(["John Lennon"], "Mother", [("Mother", 335, []), ("Why", 180, [])])
+        self.assertTrue(ids.check(a, r, strong=True)[0])
+        # but never one song against an album that happens to contain it
+        r2 = release(["John Lennon"], "Plastic Ono Band", [("Mother", 335, [])] + [(f"S{i}", 200, []) for i in range(10)])
+        self.assertFalse(ids.check(a, r2, strong=True)[0])

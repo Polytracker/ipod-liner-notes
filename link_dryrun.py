@@ -242,8 +242,21 @@ def main():
             shown[pid].update({name, sh})
             if note:
                 notes[pid] = note
+    albums_of = defaultdict(set)
+    for k, rows in credits.items():
+        for pid, *_ in rows:
+            albums_of[pid].add(k)
+
+    def worth_checking(ps):
+        # Only worth a lookup if joining the two would change where someone
+        # appears: people credited on one album, under the same name on both
+        # sites, are on that album either way.
+        sets = [frozenset(albums_of[p]) for p in ps]
+        return len(frozenset().union(*sets)) > 1 and len(set(sets)) > 1
+
     candidates = {n: ps for n, ps in names.items()
                   if any(p[0] == "mb" for p in ps) and any(p[0] == "dc" for p in ps)}
+    candidates = {n: ps for n, ps in candidates.items() if worth_checking(ps)}
     to_check = sorted({p[1] for ps in candidates.values() for p in ps if p[0] == "mb"} - set(mbart))
     print(f"Checking {len(to_check)} people credited under the same name on both sites...")
     for i, aid in enumerate(to_check, 1):

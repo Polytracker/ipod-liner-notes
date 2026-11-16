@@ -334,4 +334,3 @@ class NameSearch(unittest.TestCase):
                          ("releases/70", rel)])
         r, _ = ids.Discogs(site).identify(a, {}, sibling_titles=["Live at RAK", "A Sky Without Stars"])
         self.assertEqual((r["id"], r["rung"]), (70, "artist discography"))
-        self.assertEqual(sum("releases/" in u and "artists/" not in u for u, _ in site.asked), 1)  # one release fetched

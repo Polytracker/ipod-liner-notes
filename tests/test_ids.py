@@ -228,3 +228,34 @@ class SavedReleases(unittest.TestCase):
         r, _ = ids.MusicBrainz(site2, FakeSite([])).identify(a)          # no second fetch of the release
         self.assertEqual(r["id"], "R-kept")
         self.assertFalse(any("release/R-kept" in u for u, _ in site2.asked))
+
+
+class FewerRequests(unittest.TestCase):
+    def test_only_plausible_search_results_are_fetched(self):
+        a = album("x", "y", ORIGINAL)                                   # 14 tracks
+        results = [{"id": "single", "track-count": 2}, {"id": "box", "track-count": 60},
+                   {"id": "near", "track-count": 15}, {"id": "same", "track-count": 14},
+                   {"id": "weak", "track-count": 14, "score": 60}]
+        self.assertEqual(ids.MusicBrainz.plausible(a, results, min_score=80), ["same", "near"])
+
+    def test_group_links_come_with_the_release(self):
+        a = album("Pinback", "Summer in Abaddon", ORIGINAL)
+        rel = mb_release("R9", "Summer in Abaddon", "Pinback", ORIGINAL)
+        rel["release-group"]["relations"] = [
+            {"type": "wikidata", "url": {"resource": "https://www.wikidata.org/wiki/Q9"}},
+            {"type": "discogs", "url": {"resource": "https://www.discogs.com/master/42"}}]
+        site = FakeSite([("release:", {"releases": [{"id": "R9", "score": 100, "track-count": 14}]}),
+                         ("release/R9", rel)])
+        r, _ = ids.MusicBrainz(site, FakeSite([])).identify(a)
+        self.assertEqual((r["wikidata"], r["discogs"]["master"]), ("Q9", 42))
+        self.assertFalse(any("release-group/" in u for u, _ in site.asked))   # no separate request
+
+    def test_partial_edition_stops_before_a_name_search(self):
+        deluxe = ORIGINAL + [(f"Demo {i}", 150, "") for i in range(9)]
+        a = album("Elliott Smith", "XO (Deluxe Edition)", deluxe, barcode="600445026020")
+        site = FakeSite([("barcode:", {"releases": [{"id": "R-orig", "track-count": 14}]}),
+                         ("release/R-orig", mb_release("R-orig", "XO", "Elliott Smith", ORIGINAL)),
+                         ("release:", {"releases": [{"id": "R-other", "score": 100}]})])
+        r, _ = ids.MusicBrainz(site, FakeSite([])).identify(a)
+        self.assertEqual((r["id"], r["how"]), ("R-orig", "superset"))
+        self.assertFalse(any("release:" in repr(p) for _, p in site.asked))

@@ -63,7 +63,8 @@ RETRY_DAYS = 30
 VARIOUS = "89ad4ac3-39f7-470e-963a-56509c546377"
 SINGLES = {"singles", "single", "misc", "miscellaneous", "loose tracks"}
 LOOKUP_INC = ("artist-credits+recordings+release-groups+isrcs+labels+url-rels+artist-rels"
-              "+recording-level-rels+work-rels+work-level-rels")   # works carry the songwriters
+              "+recording-level-rels+work-rels+work-level-rels"     # works carry the songwriters
+              "+release-group-level-rels")                         # the group's Wikidata and Discogs links
 EXTRA = r"remaster|version|edit|mix|mono|stereo|live|demo|take|bonus|instrumental|deluxe|expanded|anniversary|edition"
 
 
@@ -541,6 +542,22 @@ class MusicBrainz:
         found = self.site.get(f"{MB}release/", {"query": query, "fmt": "json", "limit": limit}) or {}
         return found.get("releases") or []
 
+    @staticmethod
+    def plausible(album, results, keep=3, min_score=0):
+        """Search results worth a full lookup: a release far shorter or
+        longer than your copy can't pass the check, so it isn't fetched;
+        the nearest in length come first. Saves most wasted lookups."""
+        n = len(album["tracks"])
+        out = []
+        for r in results:
+            if int(r.get("score") or 100) < min_score:
+                continue
+            count = r.get("track-count") or sum(m.get("track-count", 0) for m in r.get("media") or [])
+            if count and not (0.4 * n <= count <= 2.5 * n):
+                continue
+            out.append((abs(count - n) if count else 50, r.get("id")))
+        return [rid for _, rid in sorted(out, key=lambda x: x[0])][:keep]
+
     def url_releases(self, url):
         data = self.site.get(f"{MB}url", {"resource": url, "inc": "release-rels", "fmt": "json"}) or {}
         return [(r.get("release") or {}).get("id") for r in data.get("relations") or []]
@@ -575,8 +592,8 @@ class MusicBrainz:
             steps.append(("discogs id", lambda: self.url_releases(f"https://www.discogs.com/release/{album['discogs']}")))
         forms = barcode_forms(album["barcode"])
         if forms:
-            steps.append(("barcode", lambda: [r.get("id") for r in
-                                              self.search("barcode:(" + " OR ".join(forms) + ")")[:3]]))
+            steps.append(("barcode", lambda: self.plausible(
+                album, self.search("barcode:(" + " OR ".join(forms) + ")"))))
         if any(t["isrc"] for t in album["tracks"]):
             steps.append(("isrc", lambda: self.isrc_releases(album)))
         if album["links"]:
@@ -585,21 +602,27 @@ class MusicBrainz:
             steps.append(("disc id", lambda: [r.get("id") for r in (self.site.get(
                 f"{MB}discid/{album['discid']}", {"fmt": "json"}) or {}).get("releases") or []][:3]))
         if album["catno"]:
-            steps.append(("catalogue number", lambda: [r.get("id") for r in self.search(
-                f"catno:{q(album['catno'])}" + (f" AND label:{q(album['label'])}" if album["label"] else ""))[:3]]))
-        steps.append(("name search", lambda: [r.get("id") for r in self.search(
-            f"release:{q(plain_album(album['album']))} AND artist:{q(album['artist'])}")
-            if int(r.get("score") or 0) >= 80][:3]))
-        partial = None
+            steps.append(("catalogue number", lambda: self.plausible(album, self.search(
+                f"catno:{q(album['catno'])}" + (f" AND label:{q(album['label'])}" if album["label"] else "")))))
+        steps.append(("name search", lambda: self.plausible(album, self.search(
+            f"release:{q(plain_album(album['album']))} AND artist:{q(album['artist'])}"), min_score=80)))
+        partial, extra = None, 0
         for rung, rids in steps:
+            if partial:
+                # an edition with more or fewer tracks was found: try one
+                # more rung for yours, but never a name search over an ID
+                if rung == "name search" or extra >= 1:
+                    break
+                extra += 1
             r, rel = go(rids(), rung)
             if r and r["how"] not in ("subset", "superset"):
                 save_release("mbrel", r["id"], rel)
-                return self.finish(album, r), failed
-            partial = partial or (r and (r, rel))   # more or fewer tracks: keep looking for yours
+                return self.finish(r, rel), failed
+            if r and not partial:
+                partial = (r, rel)
         if partial:
             save_release("mbrel", partial[0]["id"], partial[1])
-            return self.finish(album, partial[0]), failed
+            return self.finish(*partial), failed
         return None, failed
 
     def isrc_releases(self, album):
@@ -608,6 +631,8 @@ class MusicBrainz:
         picks = [isrcs[0]] + ([isrcs[len(isrcs) // 2]] if len(isrcs) > 2 else [])
         shared, info = None, {}
         for code in picks:
+            if shared is not None and len(shared) <= 5:
+                break                    # the first ISRC narrowed it down enough
             data = self.site.get(f"{MB}isrc/{code}", {"inc": "releases", "fmt": "json"}) or {}
             recs = data.get("recordings") or []
             if recs and not any(r.get("releases") for r in recs):
@@ -627,13 +652,17 @@ class MusicBrainz:
             count = rel.get("track-count") or sum(m.get("track-count", 0) for m in rel.get("media") or [])
             return (clean_title(rel.get("title", "")) != title, abs(count - n) if count else 99,
                     rel.get("status", "Official") != "Official", i)
-        return sorted(shared, key=rank)[:5]
+        return sorted(shared, key=rank)[:3]
 
-    def finish(self, album, r):
+    def finish(self, r, release):
         """Add what the release group knows: its Wikidata item and, if the
-        release itself has none, its Discogs master."""
-        if r.get("rg"):
+        release itself has none, its Discogs master. These come with the
+        release lookup; only a release saved by an older version needs the
+        group looked up on its own."""
+        data = (release or {}).get("release-group") or {}
+        if "relations" not in data and r.get("rg"):
             data = self.site.get(f"{MB}release-group/{r['rg']}", {"inc": "url-rels", "fmt": "json"}) or {}
+        if data:
             for rel in data.get("relations") or []:
                 if rel.get("type") == "wikidata":
                     m = re.search(r"(Q\d+)", (rel.get("url") or {}).get("resource", ""))
@@ -736,7 +765,7 @@ class Discogs:
         main = master.get("main_release")
         main_v = next((v for v in versions.get("versions") or [] if v.get("id") == main), None)
         rids = [] if main_v is not None and version_rank(main_v)[0] else [main]
-        return [r for r in dict.fromkeys(rids + [v.get("id") for v in ranked][:4]) if r]
+        return [r for r in dict.fromkeys(rids + [v.get("id") for v in ranked][:2]) if r][:3]
 
     def identify(self, album, links):
         """(result, failed attempts), from the best evidence down."""
@@ -751,14 +780,18 @@ class Discogs:
         for form in barcode_forms(album["barcode"])[:2]:
             steps.append(("barcode", lambda form=form: [h.get("id") for h in (self.site.get(
                 f"{DISCOGS}database/search", {"barcode": form, "type": "release", "per_page": 5}) or {}
-            ).get("results") or []][:3]))
+            ).get("results") or []][:2]))
         if album["catno"]:
             steps.append(("catalogue number", lambda: [h.get("id") for h in (self.site.get(
                 f"{DISCOGS}database/search", {"catno": album["catno"], "artist": album["artist"],
                                               "type": "release", "per_page": 5}) or {}
             ).get("results") or []][:3]))
-        partial = None
+        partial, extra = None, 0
         for rung, rids in steps:
+            if partial:
+                if extra >= 1:
+                    break                # one more rung for an exact edition, then settle
+                extra += 1
             r = self.best(album, rids(), rung, seen, failed)
             if r and r["how"] not in ("subset", "superset"):
                 return r, failed
@@ -845,6 +878,8 @@ def identify_all(albums, token, refresh=False, retry=False, progress=True):
             print(f"\r  {stats['dc']}/{len(todo)} albums done", end="", flush=True)
     if progress:
         print()
+        print(f"  {mb_site.count} MusicBrainz, {dc.site.count if dc else 0} Discogs and {deezer.count} Deezer"
+              f" requests ({(mb_site.count + (dc.site.count if dc else 0)) / len(todo):.1f} per album)")
     return {a["key"]: load(a) for a in todo}
 
 def write_missing(albums):

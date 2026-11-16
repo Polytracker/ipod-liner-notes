@@ -325,17 +325,43 @@ def durations_ok(pairs, share):
     return not timed or close >= share * len(timed), len(timed) - close, len(timed)
 
 def titles_ok(pairs, share=0.8):
-    named = [(clean_title(a["title"]), clean_title(b.get("title"))) for a, b in pairs]
+    named = [(title_keys(a["title"]), title_keys(b.get("title"))) for a, b in pairs]
     named = [(x, y) for x, y in named if x and y]
-    same = sum(1 for x, y in named if x == y or x in y or y in x)
+    same = sum(1 for x, y in named if any(_title_like(p, q) for p in x for q in y))
     return bool(named) and same >= share * len(named)
 
+def title_keys(s):
+    """The ways a title can be compared: Discogs gives translated titles as
+    "Original = Translation", so each side counts."""
+    parts = [s or ""] + ([p for p in (s or "").split(" = ")] if " = " in (s or "") else [])
+    return [k for k in dict.fromkeys(clean_title(p) for p in parts) if k]
+
+def _title_like(a, b):
+    return a == b or (min(len(a), len(b)) >= 4 and (a in b or b in a))
+
 def by_title(want, have):
-    """Pair each track in want with the track in have of the same title."""
-    index = {}
-    for t in have:
-        index.setdefault(clean_title(t.get("title")), t)
-    return [(w, index[clean_title(w.get("title"))]) for w in want if clean_title(w.get("title")) in index]
+    """Pair each track in want with the track in have of the same title:
+    an exact match first, then one title inside the other ("Something /
+    Blue Jay Way" and "Something / Blue Jay Way (Transition)")."""
+    have = [(t, title_keys(t.get("title"))) for t in have]
+    used, pairs, left = set(), [], []
+    exact = {}
+    for i, (t, keys) in enumerate(have):
+        for k in keys:
+            exact.setdefault(k, i)
+    for w in want:
+        i = next((exact[k] for k in title_keys(w.get("title")) if k in exact and exact[k] not in used), None)
+        if i is None:
+            left.append(w)
+        else:
+            used.add(i); pairs.append((w, have[i][0]))
+    for w in left:
+        mine = title_keys(w.get("title"))
+        i = next((i for i, (t, keys) in enumerate(have) if i not in used
+                  and any(_title_like(a, b) for a in mine for b in keys)), None)
+        if i is not None:
+            used.add(i); pairs.append((w, have[i][0]))
+    return pairs
 
 def check(album, remote, strong=False, need_artist=False):
     """Is this release the album in the folder? remote holds "tracks"
@@ -389,8 +415,8 @@ def check(album, remote, strong=False, need_artist=False):
             ways.append(("superset", [(b, a) for a, b in found], False))
     if not ways:
         why = f"{len(local)} tracks here, {len(tracks)} on the release"
-        theirs = {clean_title(t.get("title")) for t in tracks}
-        missing = [t["title"] for t in local if clean_title(t["title"]) not in theirs]
+        found = {id(w) for w, _ in by_title(local, tracks)}
+        missing = [t["title"] for t in local if id(t) not in found]
         if 0 < len(missing) < len(local):
             # name the titles that didn't line up, so the reason can be checked
             why += f"; not on it by title: {', '.join(missing[:3])}" + (" ..." if len(missing) > 3 else "")
@@ -760,6 +786,13 @@ def version_rank(v):
     year = re.match(r"\d{4}", str(v.get("released") or "")) or None
     return (odd, kind, int(year.group(0)) if year else 9999)
 
+def edition_year(album):
+    """The year of the edition the files come from, when the titles say so:
+    "America (2003 Remaster)" -> 2003. None otherwise."""
+    years = re.findall(r"\b(19[5-9]\d|20[0-4]\d)\b[^()\[\]]{0,20}?(?:remaster|edition|reissue|version|mix)",
+                       " ".join([album["album"]] + [t["title"] for t in album["tracks"]]), re.I)
+    return int(max(set(years), key=years.count)) if years else None
+
 class Discogs:
     def __init__(self, site):
         self.site = site
@@ -803,19 +836,30 @@ class Discogs:
                 partial = r
         return partial
 
-    def master_releases(self, master_id):
-        """The master's main release, then its plainest editions."""
+    def master_releases(self, master_id, year=None):
+        """The master's main release, then its plainest editions; editions
+        from the year the files' titles name ("2003 Remaster") first."""
         master = self.site.get(f"{DISCOGS}masters/{master_id}") or {}
         # CD editions asked for by name: a famous album can have hundreds of
         # editions, and the first page of them is all 1970s vinyl
-        versions = self.site.get(f"{DISCOGS}masters/{master_id}/versions", {"per_page": 50, "format": "CD"}) or {}
+        versions = {}
+        if year:
+            versions = self.site.get(f"{DISCOGS}masters/{master_id}/versions",
+                                     {"per_page": 50, "released": year}) or {}
+        if not versions.get("versions"):
+            versions = self.site.get(f"{DISCOGS}masters/{master_id}/versions", {"per_page": 50, "format": "CD"}) or {}
         if not versions.get("versions"):
             versions = self.site.get(f"{DISCOGS}masters/{master_id}/versions", {"per_page": 50}) or {}
-        ranked = sorted(versions.get("versions") or [], key=version_rank)
+        def rank(v):
+            odd, kind, y = version_rank(v)
+            return (odd, year is not None and y != year, kind, y)
+        ranked = sorted(versions.get("versions") or [], key=rank)
         main = master.get("main_release")
         main_v = next((v for v in versions.get("versions") or [] if v.get("id") == main), None)
         rids = [] if main_v is not None and version_rank(main_v)[0] else [main]
-        return [r for r in dict.fromkeys(rids + [v.get("id") for v in ranked][:2]) if r][:3]
+        if year and ranked and rank(ranked[0])[1] is False:
+            rids = []        # an edition of that year goes ahead of the original
+        return [r for r in dict.fromkeys(rids + [v.get("id") for v in ranked][:2] + [main]) if r][:3]
 
     def identify(self, album, links, known_artists=(), sibling_titles=()):
         """(result, failed attempts), from the best evidence down."""
@@ -826,7 +870,7 @@ class Discogs:
         if links.get("release"):
             steps.append(("musicbrainz link", lambda: [links["release"]]))
         if links.get("master"):
-            steps.append(("musicbrainz master", lambda: self.master_releases(links["master"])))
+            steps.append(("musicbrainz master", lambda: self.master_releases(links["master"], edition_year(album))))
         for form in barcode_forms(album["barcode"])[:2]:
             steps.append(("barcode", lambda form=form: [h.get("id") for h in (self.site.get(
                 f"{DISCOGS}database/search", {"barcode": form, "type": "release", "per_page": 5}) or {}

@@ -353,3 +353,26 @@ class Singles(unittest.TestCase):
         # but never one song against an album that happens to contain it
         r2 = release(["John Lennon"], "Plastic Ono Band", [("Mother", 335, [])] + [(f"S{i}", 200, []) for i in range(10)])
         self.assertFalse(ids.check(a, r2, strong=True)[0])
+
+
+class Titles(unittest.TestCase):
+    def test_title_inside_another(self):
+        want = [{"title": "Something / Blue Jay Way"}, {"title": "Help!"}]
+        have = [{"title": "Help!"}, {"title": "Something / Blue Jay Way (Transition)"}]
+        self.assertEqual(len(ids.by_title(want, have)), 2)
+
+    def test_translated_titles(self):
+        want = [{"title": "Making of a Cyborg"}]
+        have = [{"title": "謡 Ⅰ = Making Of A Cyborg"}]
+        self.assertEqual(len(ids.by_title(want, have)), 1)
+
+    def test_each_track_used_once(self):
+        want = [{"title": "Intro"}, {"title": "Intro"}]
+        have = [{"title": "Intro"}]
+        self.assertEqual(len(ids.by_title(want, have)), 1)
+
+    def test_edition_year(self):
+        album = {"album": "Close to the Edge (Deluxe Edition)",
+                 "tracks": [{"title": "America (2003 Remaster)"}, {"title": "Siberian Khatru (2003 Remaster)"}]}
+        self.assertEqual(ids.edition_year(album), 2003)
+        self.assertIsNone(ids.edition_year({"album": "1999", "tracks": [{"title": "1999"}]}))

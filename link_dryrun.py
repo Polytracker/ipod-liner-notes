@@ -10,7 +10,8 @@ Producers, Engineers, Songwriters and Credited (everything else), taking each
 group from whichever site, MusicBrainz or Discogs, credits more people in it.
 People are matched by their ID on the site, never by name alone. Someone
 credited under the same name on the two sites counts as one person only when
-MusicBrainz links that artist to the same Discogs artist. It also looks up
+MusicBrainz links that artist to the same Discogs artist (asked 100 Discogs
+artists per request). It also looks up
 the bands in your library on MusicBrainz, so a credited person who is a
 member of one of them links to that band's albums.
 
@@ -257,19 +258,45 @@ def main():
     candidates = {n: ps for n, ps in names.items()
                   if any(p[0] == "mb" for p in ps) and any(p[0] == "dc" for p in ps)}
     candidates = {n: ps for n, ps in candidates.items() if worth_checking(ps)}
-    to_check = sorted({p[1] for ps in candidates.values() for p in ps if p[0] == "mb"} - set(mbart))
-    print(f"Checking {len(to_check)} people credited under the same name on both sites...")
-    for i, aid in enumerate(to_check, 1):
-        mbart[aid] = mb_artist(mb, aid)
-        print(f"\r  {i}/{len(to_check)}", end="", flush=True)
-    print()
+    # Which MusicBrainz artists link to each Discogs artist: asked 100 Discogs
+    # pages at a time, rather than one MusicBrainz artist at a time
+    links_to = defaultdict(set)                        # ("dc", id) -> {("mb", id)}
+    for a, data in mbart.items():
+        for d in discogs_artist_ids(data):
+            links_to[d].add(("mb", a))
+    wanted = sorted({p[1] for ps in candidates.values() for p in ps if p[0] == "dc"})
+    to_ask = []
+    for d in wanted:
+        saved = ids.saved_release("dcurl", d)
+        if saved is None:
+            to_ask.append(d)
+        else:
+            links_to[("dc", d)].update(("mb", a) for a in saved.get("mb") or [])
+    batches = [to_ask[i:i + 100] for i in range(0, len(to_ask), 100)]
+    print(f"Checking {len(wanted)} people credited under the same name on both sites "
+          f"({len(batches)} requests)...")
+    for batch in batches:
+        params = [("resource", f"https://www.discogs.com/artist/{d}") for d in batch]
+        params += [("inc", "artist-rels"), ("fmt", "json")]
+        data = mb.get(f"{ids.MB}url", params)
+        if data is None:          # nothing found, or the request failed: save nothing
+            continue
+        found = {d: [] for d in batch}
+        for u in data.get("urls") or ([data] if data.get("resource") else []):
+            m = re.search(r"discogs\.com/artist/(\d+)", u.get("resource") or "")
+            if m and int(m.group(1)) in found:
+                found[int(m.group(1))] = [r["artist"]["id"] for r in u.get("relations") or []
+                                          if (r.get("artist") or {}).get("id")]
+        for d, mbids in found.items():
+            ids.save_release("dcurl", d, {"mb": mbids})
+            links_to[("dc", d)].update(("mb", a) for a in mbids)
     confirmed, unconfirmed = [], []
     for n, ps in sorted(candidates.items()):
         mbs = [p for p in ps if p[0] == "mb"]
         dcs = [p for p in ps if p[0] == "dc"]
         linked = set()
         for p in mbs:
-            for d in discogs_artist_ids(mbart.get(p[1])) & set(dcs):
+            for d in {d for d in dcs if p in links_to[d]}:
                 same.join(p, d)
                 linked.add(d)
                 confirmed.append((n, p, d))

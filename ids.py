@@ -110,6 +110,52 @@ def text(v):
         v = v.decode("utf-8", "replace")
     return str(v).strip().strip("\x00")
 
+# credit tags (ID3 frames by their usual names, Vorbis/MP4 by name) and the
+# group each goes in; a tag's own role text wins where it has one
+CREDIT_TAGS = {"COMPOSER": ("composer", "Songwriters"), "TCOM": ("composer", "Songwriters"),
+               "©WRT": ("composer", "Songwriters"), "LYRICIST": ("lyricist", "Songwriters"),
+               "TEXT": ("lyricist", "Songwriters"), "WRITER": ("writer", "Songwriters"),
+               "SONGWRITER": ("writer", "Songwriters"), "PRODUCER": ("producer", "Producers"),
+               "ENGINEER": ("engineer", "Engineers"), "MIXER": ("mix", "Engineers"),
+               "MIXEDBY": ("mix", "Engineers"), "MASTEREDBY": ("mastering", "Engineers"),
+               "ARRANGER": ("arranger", "Credited"), "TPE3": ("conductor", "Musicians"),
+               "CONDUCTOR": ("conductor", "Musicians"), "PERFORMER": ("performer", "Musicians")}
+PEOPLE_FRAMES = {"TMCL": "Musicians", "TIPL": None, "IPLS": None}
+
+def all_texts(v):
+    """Every value of a tag, not just the first."""
+    if hasattr(v, "text"):
+        v = v.text
+    if not isinstance(v, (list, tuple)):
+        v = [v]
+    out = []
+    for x in v:
+        if isinstance(x, bytes):
+            x = x.decode("utf-8", "replace")
+        out += [y.strip() for y in re.split(r"\x00|; ", str(x)) if y.strip()]
+    return out
+
+def credit_pairs(name, v):
+    """(person, role, group) from one credit tag, or []."""
+    frame = name[:4]
+    if frame in PEOPLE_FRAMES and hasattr(v, "people"):
+        out = []
+        for role, who in v.people:
+            group = PEOPLE_FRAMES[frame] or dc_group(role)
+            out += [(w, role or "performer", group) for w in all_texts(who)]
+        return out
+    base = name.split(":", 1)[0]
+    if base not in CREDIT_TAGS:
+        return []
+    role, group = CREDIT_TAGS[base]
+    if ":" in name:                                   # Vorbis "PERFORMER:GUITAR"
+        role = name.split(":", 1)[1].lower()
+    out = []
+    for value in all_texts(v):
+        m = re.match(r"^(.*?)\s*\(([^()]+)\)$", value) if base == "PERFORMER" else None
+        out.append((m.group(1), m.group(2), group) if m else (value, role, group))
+    return out
+
 def read_track(p):
     """The tags the lookups use, whatever format the file is."""
     try:
@@ -130,6 +176,10 @@ def read_track(p):
             continue
         out["urls"] += URL_RE.findall(value)
         out.setdefault(name, value)
+        try:
+            out.setdefault("credits", []).extend(credit_pairs(name, f.tags[k]))
+        except Exception:
+            pass
     return out
 
 def number(s, default):
@@ -203,7 +253,9 @@ def scan(music, only=None, quiet=False):
                 "links": store_links(first, urls),
                 "tracks": [{"i": i, "disc": t["disc"], "num": t["num"], "length": t["length"],
                             "isrc": t.get("ISRC", "").replace("-", "").upper(),
-                            "title": t.get("TITLE", ""), "file": t["path"]} for i, t in enumerate(tracks)]})
+                            "title": t.get("TITLE", ""), "file": t["path"]} for i, t in enumerate(tracks)],
+                "tag_credits": [[who, role, group, i] for i, t in enumerate(tracks)
+                                for who, role, group in t.get("credits") or [] if who]})
             if not quiet:
                 print(f"\r  {len(albums)} albums read", end="", flush=True)
     if not quiet:
@@ -972,6 +1024,10 @@ def record_path(album):
     name = ab.safe_name(album["key"])
     return CACHE / f"{name}.json" if name else None
 
+def library():
+    """What the last full scan found: {"keys": [...], "albums": {key: {...}}}."""
+    return (ab.load_json(LIBRARY) if LIBRARY.exists() else None) or {}
+
 def current_keys():
     """The albums in the library at the last full scan, or None if never."""
     data = ab.load_json(LIBRARY) if LIBRARY.exists() else None
@@ -1107,7 +1163,11 @@ def main(argv=None):
     if not args.only:
         # the albums in the library now: later steps leave out records of
         # albums since deleted or renamed, so nothing links to them
-        ab.save_json(LIBRARY, {"checked": int(time.time()), "keys": sorted(a["key"] for a in albums)})
+        ab.save_json(LIBRARY, {"checked": int(time.time()), "keys": sorted(a["key"] for a in albums),
+                               "albums": {a["key"]: {
+                                   "artist": a["artist"], "album": a["album"],
+                                   "tracks": [[t["disc"], t["num"], t["title"]] for t in a["tracks"]],
+                                   "tag_credits": a["tag_credits"]} for a in albums}})
     recs = [load(a) or {} for a in albums]
     mb_n = sum(1 for r in recs if r.get("mb"))
     dc_n = sum(1 for r in recs if r.get("discogs"))

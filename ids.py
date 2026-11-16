@@ -388,7 +388,13 @@ def check(album, remote, strong=False, need_artist=False):
             # least 40% of yours), so a single or EP never passes
             ways.append(("superset", [(b, a) for a, b in found], False))
     if not ways:
-        return False, f"{len(local)} tracks here, {len(tracks)} on the release", "", []
+        why = f"{len(local)} tracks here, {len(tracks)} on the release"
+        theirs = {clean_title(t.get("title")) for t in tracks}
+        missing = [t["title"] for t in local if clean_title(t["title"]) not in theirs]
+        if 0 < len(missing) < len(local):
+            # name the titles that didn't line up, so the reason can be checked
+            why += f"; not on it by title: {', '.join(missing[:3])}" + (" ..." if len(missing) > 3 else "")
+        return False, why, "", []
     why = ""
     for how, pairs, by_order in ways:
         ok, off, timed = durations_ok(pairs, 0.8 if by_order else 0.7)

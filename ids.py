@@ -857,9 +857,13 @@ def write_missing(albums):
             ids = [k for k, v in (("barcode", a["barcode"]), ("ISRC", any(t["isrc"] for t in a["tracks"])),
                                   ("store link", a["links"]), ("catalogue number", a["catno"])) if v]
             lines.append(f"{a['key']}  (not on {' or '.join(gaps)}; tags have {', '.join(ids) or 'no IDs'})")
+            for site, k in (("MusicBrainz", "mb_failed"), ("Discogs", "discogs_failed")):
+                for f in rec.get(k) or []:
+                    lines.append(f"    {site} [{f.get('rung')}] {f.get('edition') or f.get('title') or f.get('id')}:"
+                                 f" {f.get('why')}")
     MISSING_LIST.write_text(
         "Albums not identified. Tagging them in Picard (with its audio scan) adds MusicBrainz IDs,\n"
-        "which the next run picks up.\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
+        "which the next run picks up. Under each: the editions that were tried and why they didn't match.\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
     return len(lines)
 
 def main(argv=None):

@@ -38,7 +38,7 @@ Writes "Albums not identified.txt" beside this file.
 """
 from __future__ import annotations
 
-import argparse, hashlib, os, re, sys, threading, time, unicodedata
+import argparse, gzip, hashlib, json, os, re, sys, threading, time, unicodedata
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -56,11 +56,14 @@ DISCOGS = "https://api.discogs.com/"
 DEEZER = "https://api.deezer.com/"
 UA = "ipod-liner-notes/0.2 ( https://github.com/Polytracker/ipod-liner-notes )"
 CACHE = ab.CACHE.parent / "ids"
+RELEASES = CACHE / "releases"   # the matched releases, compressed, shared by the credits and links steps
+RELEASE_DAYS = 180              # how long a saved release is reused before it's fetched again
 MISSING_LIST = HERE / "Albums not identified.txt"
 RETRY_DAYS = 30
 VARIOUS = "89ad4ac3-39f7-470e-963a-56509c546377"
 SINGLES = {"singles", "single", "misc", "miscellaneous", "loose tracks"}
-LOOKUP_INC = "artist-credits+recordings+release-groups+isrcs+artist-rels+recording-level-rels+url-rels+labels"
+LOOKUP_INC = ("artist-credits+recordings+release-groups+isrcs+labels+url-rels+artist-rels"
+              "+recording-level-rels+work-rels+work-level-rels")   # works carry the songwriters
 EXTRA = r"remaster|version|edit|mix|mono|stereo|live|demo|take|bonus|instrumental|deluxe|expanded|anniversary|edition"
 
 
@@ -380,6 +383,67 @@ def tracks_note(album, found):
     return ""
 
 
+# ================================================================ credit groups
+GROUPS = ("Musicians", "Producers", "Engineers", "Songwriters", "Credited")
+
+MB_GROUP = {"instrument": "Musicians", "vocal": "Musicians", "performer": "Musicians",
+            "performing orchestra": "Musicians", "conductor": "Musicians", "chorus master": "Musicians",
+            "concertmaster": "Musicians",
+            "producer": "Producers",
+            "engineer": "Engineers", "recording": "Engineers", "mix": "Engineers", "mastering": "Engineers",
+            "sound": "Engineers", "audio": "Engineers", "balance": "Engineers", "editor": "Engineers",
+            "composer": "Songwriters", "lyricist": "Songwriters", "writer": "Songwriters",
+            "librettist": "Songwriters"}
+
+def mb_group(rel_type):
+    """The credits group for a MusicBrainz relationship type."""
+    return MB_GROUP.get((rel_type or "").lower(), "Credited")
+
+DC_SONGWRITER = re.compile(r"written|compos|lyrics|music by|songwriter|words by|libretto", re.I)
+DC_PRODUCER = re.compile(r"produc", re.I)
+DC_ENGINEER = re.compile(r"engineer|recorded by|mixed by|mastered by|\bmix|\bmaster|lacquer|remaster|"
+                         r"edited by|tape op|transfer", re.I)
+DC_CREDITED = re.compile(
+    r"design|photo|art|layout|liner|manage|a&r|coordinat|technician|supervis|booking|legal|copyright|"
+    r"notes|translated|illustrat|painting|label|publish|arrang|score|orchestrat|copyist|contractor|"
+    r"liaison|director|programm|sequenc|by\b", re.I)
+
+def dc_group(role):
+    """The credits group for a Discogs role such as "Bass [Fretless]" or "Mixed By"."""
+    role = re.sub(r"\[.*?\]", "", role or "").strip()
+    for group, rx in (("Songwriters", DC_SONGWRITER), ("Producers", DC_PRODUCER),
+                      ("Engineers", DC_ENGINEER), ("Credited", DC_CREDITED)):
+        if rx.search(role):
+            return group
+    return "Musicians"
+
+
+# ================================================================ saved releases
+def _release_path(kind, rid):
+    return RELEASES / f"{kind}_{re.sub(r'[^A-Za-z0-9-]', '', str(rid))}.json.gz"
+
+def saved_release(kind, rid, max_days=RELEASE_DAYS):
+    """A release saved by an earlier lookup ("mbrel" or "dcrel"), or None."""
+    path = _release_path(kind, rid)
+    try:
+        if max_days is not None and time.time() - path.stat().st_mtime > max_days * 86400:
+            return None
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+def save_release(kind, rid, data):
+    if not data or not rid:
+        return
+    path = _release_path(kind, rid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with gzip.open(tmp, "wt", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    tmp.replace(path)
+
+
 # ================================================================ MusicBrainz
 MUSICIAN_TYPES = {"instrument", "vocal", "performer", "performing orchestra", "conductor",
                   "chorus master", "concertmaster"}
@@ -436,7 +500,7 @@ class MusicBrainz:
         self.site, self.deezer = site, deezer
 
     def release(self, rid):
-        return self.site.get(f"{MB}release/{rid}", {"inc": LOOKUP_INC, "fmt": "json"})
+        return saved_release("mbrel", rid) or self.site.get(f"{MB}release/{rid}", {"inc": LOOKUP_INC, "fmt": "json"})
 
     def attempt(self, album, rid, rung, tried):
         if not rid or rid in tried:
@@ -530,9 +594,13 @@ class MusicBrainz:
         for rung, rids in steps:
             r, rel = go(rids(), rung)
             if r and r["how"] not in ("subset", "superset"):
+                save_release("mbrel", r["id"], rel)
                 return self.finish(album, r), failed
-            partial = partial or r       # an edition with more or fewer tracks: keep looking for yours
-        return (self.finish(album, partial) if partial else None), failed
+            partial = partial or (r and (r, rel))   # more or fewer tracks: keep looking for yours
+        if partial:
+            save_release("mbrel", partial[0]["id"], partial[1])
+            return self.finish(album, partial[0]), failed
+        return None, failed
 
     def isrc_releases(self, album):
         """The releases a few of the tracks' recordings share, the likeliest first."""
@@ -629,7 +697,7 @@ class Discogs:
         if not rid or rid in seen:
             return None
         seen.add(rid)
-        rel = self.site.get(f"{DISCOGS}releases/{rid}")
+        rel = saved_release("dcrel", rid) or self.site.get(f"{DISCOGS}releases/{rid}")
         if not rel:
             return None
         tracks = [t for t in rel.get("tracklist") or [] if t.get("type_", "track") == "track"]
@@ -639,8 +707,11 @@ class Discogs:
                              + [a.get("name", "") for a in rel.get("artists") or []],
                   "title": rel.get("title", "")}
         ok, why, how, pairs = check(album, remote, strong=not need_artist, need_artist=need_artist)
+        if ok:
+            save_release("dcrel", rid, rel)
         return {"ok": ok, "why": why, "how": how, "rung": rung, "id": rid, "title": rel.get("title"),
                 "master": rel.get("master_id"), "edition": discogs_edition(rel), "release_tracks": len(tracks),
+                "artists": [{"id": a.get("id"), "name": a.get("name")} for a in rel.get("artists") or []],
                 "tracks": {str(a["i"]): {"position": b["position"]} for a, b in pairs}}
 
     def best(self, album, rids, rung, seen, failed, need_artist=False):

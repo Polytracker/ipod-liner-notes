@@ -194,3 +194,37 @@ class Saved(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Groups(unittest.TestCase):
+    def test_musicbrainz(self):
+        self.assertEqual([ids.mb_group(t) for t in ("instrument", "producer", "mix", "lyricist", "design")],
+                         ["Musicians", "Producers", "Engineers", "Songwriters", "Credited"])
+
+    def test_discogs(self):
+        roles = {"Bass [Fretless]": "Musicians", "Vocals, Guitar": "Musicians", "Co-producer": "Producers",
+                 "Mixed By": "Engineers", "Mastered By": "Engineers", "Lacquer Cut By": "Engineers",
+                 "Written-By": "Songwriters", "Lyrics By": "Songwriters", "Music By": "Songwriters",
+                 "Design": "Credited", "Photography By": "Credited", "Arranged By [Strings]": "Credited",
+                 "Drums [Uncredited]": "Musicians"}
+        for role, group in roles.items():
+            self.assertEqual(ids.dc_group(role), group, role)
+
+
+class SavedReleases(unittest.TestCase):
+    def test_round_trip_and_age(self):
+        ids.save_release("mbrel", "abc-123", {"title": "XO"})
+        self.assertEqual(ids.saved_release("mbrel", "abc-123"), {"title": "XO"})
+        self.assertIsNone(ids.saved_release("mbrel", "abc-123", max_days=-1))   # too old: fetch again
+        self.assertIsNone(ids.saved_release("dcrel", "999"))
+
+    def test_chosen_release_is_kept(self):
+        a = album("Pinback", "Summer in Abaddon", ORIGINAL)
+        rel = mb_release("R-kept", "Summer in Abaddon", "Pinback", ORIGINAL)
+        site = FakeSite([("release:", {"releases": [{"id": "R-kept", "score": 100}]}), ("release/R-kept", rel)])
+        ids.MusicBrainz(site, FakeSite([])).identify(a)
+        self.assertEqual(ids.saved_release("mbrel", "R-kept")["title"], "Summer in Abaddon")
+        site2 = FakeSite([("release:", {"releases": [{"id": "R-kept", "score": 100}]})])
+        r, _ = ids.MusicBrainz(site2, FakeSite([])).identify(a)          # no second fetch of the release
+        self.assertEqual(r["id"], "R-kept")
+        self.assertFalse(any("release/R-kept" in u for u, _ in site2.asked))

@@ -311,17 +311,65 @@ def layout_track(fonts, page):
         y += fonts["small"].height
     return out, y + M
 
-def screen(fonts, title, page, cover, scroll=0, current="Credits"):
+def layout_banner(fonts, page):
+    """A Bio or Album page from y = 0: the 160 px banner (drawn separately)
+    with the name over its foot, the facts line under it, then paragraphs; a
+    "# " line is small and grey, or an 18-pt bold heading when text follows."""
+    W, M = LAYOUT["width"], LAYOUT["margin"]
+    width = W - 2 * M
+    body_h = fonts["body"].height
+    lines = page.splitlines()
+    name, facts, rest = lines[0], lines[1] if len(lines) > 1 else "", lines[2:]
+    out = []
+    y = 160 - fonts["title"].height - 2
+    out.append(("title", name, M, y, False))
+    y = 160 + 2
+    for line in wrap(fonts["small"], facts, width):
+        out.append(("small", line, M, y, True))
+        y += fonts["small"].height
+    y += body_h // 2 + 4
+    paras = [l for l in rest if l.strip()]
+    for n, p in enumerate(paras):
+        if p.startswith("# "):
+            heading = n + 1 < len(paras) and not paras[n + 1].startswith("# ")
+            if heading:
+                out.append(("head", p[2:], M, y, False))
+                y += fonts["head"].height + body_h // 4
+                continue
+            for line in wrap(fonts["small"], p[2:], width):
+                out.append(("small", line, M, y, True))
+                y += fonts["small"].height
+            y += body_h // 4
+            continue
+        for line in wrap(fonts["body"], p, width):
+            out.append(("body", line, M, y, False))
+            y += body_h
+        y += body_h // 2
+    return out, y + M
+
+def screen(fonts, title, page, cover, scroll=0, current="Credits", banner=None):
     """One 320×240 screen as the iPod shows it with the page scrolled down
     by scroll pixels: the background stays put, the text moves under the
     pinned page names."""
-    items, _ = layout_track(fonts, page) if current == "Track" else layout(fonts, title, page)
+    if current in ("Bio", "Album"):
+        items, _ = layout_banner(fonts, page)
+    elif current == "Track":
+        items, _ = layout_track(fonts, page)
+    else:
+        items, _ = layout(fonts, title, page)
     W, H, S = LAYOUT["width"], LAYOUT["height"], LAYOUT["strip"]
     img = background(cover, H)
     base = img.getpixel((W // 2, H // 2))
     fg = (255, 255, 255)
     dim, role = mix(base, fg, LAYOUT["dim"]), mix(base, fg, LAYOUT["role_tint"])
     text = Image.new("RGBA", (W, H - S), (0, 0, 0, 0))
+    if banner is not None and current in ("Bio", "Album"):
+        # the banner scrolls with the page, under the strip; its foot darkened for the name
+        with Image.open(io.BytesIO(banner)) as b:
+            band = b.convert("RGB").resize((W, 160))
+        shade = Image.linear_gradient("L").resize((W, 160)).point(lambda v: max(0, v - 120) * 255 // 135)
+        band.paste((0, 0, 0), (0, 0), shade.point(lambda v: v * 0.7))
+        img.paste(band, (0, S - scroll))
     for font, t, x, y, look in items:
         if -40 < y - scroll < H:
             fonts[font].draw(text, x, y - scroll, t, (role if look == "role" else dim if look else fg) + (255,))

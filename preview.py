@@ -45,7 +45,9 @@ LAYOUT = {
     "strip_gap": 16,              # between page names
     "fonts": {"title": "26-noto-sans-medium", "small": "14-noto-sans",
               "body": "18-noto-sans", "head": "18-noto-sans-bold"},
-    "hang": 12,                   # a person's row that wraps carries on indented, so it can't pass for the next person
+    "hang": 0,                    # indent for a person's row that wraps (Joe chose none)
+    "row_gap": 4,                 # extra pixels between people, so each row's start shows
+    "role_tint": 190,             # roles a softer white than names: the background blended this far (of 255) toward the text colour
     "dim": 170,                   # grey text: the background blended 170/255 toward the text colour
     "pages": ("Bio", "Album", "Track", "Credits"),
 }
@@ -244,6 +246,7 @@ def person_row(fonts, out, name, roles, y):
                sum(font_of(f).text_width(" ") for f, _ in unit[1:] if f != "tight")
 
     x = M
+    in_roles = False
     for n, unit in enumerate(row_units(name, roles)):
         gap = 0 if n == 0 else body.text_width(" ")
         if n and x + gap + width(unit) > W - M:
@@ -254,9 +257,35 @@ def person_row(fonts, out, name, roles, y):
             font = font_of(f)
             if k and f != "tight":
                 x += font.text_width(" ")
-            out.append(("body" if f == "tight" else f, text, x, y + body.ascent - font.ascent, f == "small"))
+            look = True if f == "small" else ("role" if in_roles else False)
+            out.append(("body" if f == "tight" else f, text, x, y + body.ascent - font.ascent, look))
             x += font.text_width(text)
-    return y + body.height
+            if text == "\u2013":
+                in_roles = True
+    return y + body.height + LAYOUT["row_gap"]
+
+def screen(fonts, title, page, cover, scroll=0):
+    """One 320×240 screen as the iPod shows it with the page scrolled down
+    by scroll pixels: the background stays put, the text moves under the
+    pinned page names."""
+    items, _ = layout(fonts, title, page)
+    W, H, S = LAYOUT["width"], LAYOUT["height"], LAYOUT["strip"]
+    img = background(cover, H)
+    base = img.getpixel((W // 2, H // 2))
+    fg = (255, 255, 255)
+    dim, role = mix(base, fg, LAYOUT["dim"]), mix(base, fg, LAYOUT["role_tint"])
+    text = Image.new("RGBA", (W, H - S), (0, 0, 0, 0))
+    for font, t, x, y, look in items:
+        if -40 < y - scroll < H:
+            fonts[font].draw(text, x, y - scroll, t, (role if look == "role" else dim if look else fg) + (255,))
+    img.paste(text, (0, S), text)
+    small = fonts["small"]
+    names = LAYOUT["pages"]
+    total = sum(small.text_width(n) for n in names) + LAYOUT["strip_gap"] * (len(names) - 1)
+    x = (W - total) // 2
+    for n in names:
+        x = small.draw(img, x, (S - small.height) // 2, n, fg if n == "Credits" else dim) + LAYOUT["strip_gap"]
+    return img
 
 def render(fonts, title, page, cover):
     items, h = layout(fonts, title, page)
@@ -265,8 +294,9 @@ def render(fonts, title, page, cover):
     base = img.getpixel((LAYOUT["width"] // 2, LAYOUT["height"] // 2))
     fg = (255, 255, 255)
     dim = mix(base, fg, LAYOUT["dim"])
-    for font, text, x, y, is_dim in items:
-        fonts[font].draw(img, x, y + S, text, dim if is_dim else fg)
+    role = mix(base, fg, LAYOUT["role_tint"])
+    for font, text, x, y, look in items:
+        fonts[font].draw(img, x, y + S, text, role if look == "role" else dim if look else fg)
     # the page names, centred in the strip; the current one bright
     small = fonts["small"]
     names = LAYOUT["pages"]

@@ -276,11 +276,46 @@ def person_row(fonts, out, name, roles, y):
                 in_roles = True
     return y + body.height + LAYOUT["row_gap"]
 
-def screen(fonts, title, page, cover, scroll=0):
+def layout_track(fonts, page):
+    """A Track page from y = 0: its title, the facts line, the paragraphs
+    with half a line between them, and the source line."""
+    W, M = LAYOUT["width"], LAYOUT["margin"]
+    width = W - 2 * M
+    body_h = fonts["body"].height
+    title, facts, paras, sources = "", [], [], ""
+    for line in page.splitlines():
+        if line.startswith("#title\t"):
+            title = line[7:]
+        elif line.startswith("#facts\t"):
+            facts.append(line[7:])
+        elif line.startswith("#sources\t"):
+            sources = line[9:]
+        elif line.strip():
+            paras.append(line)
+    out, y = [], 0
+    for line in wrap(fonts["title"], title, width):
+        out.append(("title", line, M, y, False))
+        y += fonts["title"].height
+    for t in facts:
+        for line in wrap(fonts["small"], t, width):
+            out.append(("small", line, M, y, True))
+            y += fonts["small"].height
+    y += body_h // 2 + 4
+    for p in paras:
+        for line in wrap(fonts["body"], p, width):
+            out.append(("body", line, M, y, False))
+            y += body_h
+        y += body_h // 2
+    for line in wrap(fonts["small"], sources, width):
+        out.append(("small", line, M, y, True))
+        y += fonts["small"].height
+    return out, y + M
+
+def screen(fonts, title, page, cover, scroll=0, current="Credits"):
     """One 320×240 screen as the iPod shows it with the page scrolled down
     by scroll pixels: the background stays put, the text moves under the
     pinned page names."""
-    items, _ = layout(fonts, title, page)
+    items, _ = layout_track(fonts, page) if current == "Track" else layout(fonts, title, page)
     W, H, S = LAYOUT["width"], LAYOUT["height"], LAYOUT["strip"]
     img = background(cover, H)
     base = img.getpixel((W // 2, H // 2))
@@ -296,7 +331,7 @@ def screen(fonts, title, page, cover, scroll=0):
     total = sum(small.text_width(n) for n in names) + LAYOUT["strip_gap"] * (len(names) - 1)
     x = (W - total) // 2
     for n in names:
-        x = small.draw(img, x, (S - small.height) // 2, n, fg if n == "Credits" else dim) + LAYOUT["strip_gap"]
+        x = small.draw(img, x, (S - small.height) // 2, n, fg if n == current else dim) + LAYOUT["strip_gap"]
     return img
 
 def render(fonts, title, page, cover):

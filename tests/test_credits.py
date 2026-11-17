@@ -42,8 +42,10 @@ class Roles(unittest.TestCase):
         self.assertEqual(cr.mb_role({"type": "instrument", "attributes": ["guest", "piano"]}), "Piano (guest)")
 
     def test_dc_role(self):
-        self.assertEqual(cr.dc_role("Guitar [Electric]"), "Guitar (electric)")
-        self.assertEqual(cr.dc_role("Mixed By"), "Mixed By")
+        self.assertEqual(cr.dc_role("Guitar [Electric]"), "Guitar (Electric)")
+        self.assertEqual(cr.dc_role("Synthesizer [Moog]"), "Synthesizer (Moog)")
+        self.assertEqual(cr.dc_role("Mixed By"), "Mixed by")
+        self.assertEqual(cr.dc_role("Written-By"), "Written-by")
 
 
 class FromSources(unittest.TestCase):

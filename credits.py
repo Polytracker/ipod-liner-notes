@@ -105,8 +105,11 @@ def mb_role(r):
     return cap(role)
 
 def dc_role(role):
-    """Discogs writes "Guitar [Electric]"; the page says "Guitar (electric)"."""
-    role = re.sub(r"\s*\[([^\]]*)\]", lambda m: f" ({m.group(1).lower()})", role.strip())
+    """Discogs writes "Guitar [Electric]" and "Recorded By"; the page says
+    "Guitar (Electric)" and "Recorded by". What's in brackets keeps its
+    capitals ("Synthesizer (Moog)")."""
+    role = re.sub(r"\s*\[([^\]]*)\]", r" (\1)", role.strip())
+    role = re.sub(r"(?<=[\s-])By\b", "by", role)
     return cap(role)
 
 

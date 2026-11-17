@@ -223,8 +223,11 @@ def row_units(name, roles):
     for part in re.split(r"(\[[^\]]*\])", roles):
         if part.startswith("["):
             units[-1].append(("small", part[1:-1]))
-        else:
-            units += [[("body", w)] for w in part.split(" ") if w]
+            continue
+        if part.startswith(","):                      # the comma after a set of numbers: no space before it
+            units[-1].append(("tight", ","))
+            part = part[1:]
+        units += [[("body", w)] for w in part.split(" ") if w]
     return units
 
 def person_row(fonts, out, name, roles, y):
@@ -233,9 +236,12 @@ def person_row(fonts, out, name, roles, y):
     W, M, hang = LAYOUT["width"], LAYOUT["margin"], LAYOUT["hang"]
     body = fonts["body"]
 
+    def font_of(f):
+        return fonts["body" if f == "tight" else f]
+
     def width(unit):
-        return sum(fonts[f].text_width(t) for f, t in unit) + \
-               sum(fonts[f].text_width(" ") for f, _ in unit[1:])
+        return sum(font_of(f).text_width(t) for f, t in unit) + \
+               sum(font_of(f).text_width(" ") for f, _ in unit[1:] if f != "tight")
 
     x = M
     for n, unit in enumerate(row_units(name, roles)):
@@ -245,10 +251,10 @@ def person_row(fonts, out, name, roles, y):
             x, gap = M + hang, 0
         x += gap
         for k, (f, text) in enumerate(unit):
-            font = fonts[f]
-            if k:
+            font = font_of(f)
+            if k and f != "tight":
                 x += font.text_width(" ")
-            out.append((f, text, x, y + body.ascent - font.ascent, f == "small"))
+            out.append(("body" if f == "tight" else f, text, x, y + body.ascent - font.ascent, f == "small"))
             x += font.text_width(text)
     return y + body.height
 

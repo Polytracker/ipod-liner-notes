@@ -119,7 +119,7 @@ class Layout(unittest.TestCase):
                  (("dc", 2), "Bob", "Bobby", "Bass", "Musicians", set(range(8)))]
         rows = cr.people_rows(creds, album)
         self.assertEqual(rows[0][1:], ("Ann", ["Drums [1–3, 5]", "Vocals"]))
-        self.assertEqual(cr.roles_text(rows[0][2]), "Drums [1–3, 5] · Vocals")
+        self.assertEqual(cr.roles_text(rows[0][2]), "Drums [1–3, 5], Vocals")
         self.assertEqual(cr.roles_text(["Vocals", "Guitar"]), "Vocals, Guitar")
         self.assertEqual(rows[1][1:], ("Bobby", ["Bass"]))          # every track: no numbers
 

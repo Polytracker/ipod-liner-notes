@@ -316,12 +316,11 @@ def people_rows(creds, album):
     return rows
 
 def roles_text(groups):
-    """A person's roles as the page writes them. Track numbers go in square
-    brackets, which the viewer draws small and grey without the brackets;
-    groups on different tracks are kept apart by " · " so a comma never
-    sits between a track number and the next role:
-    "Backing vocals [3, 9] · Performer, Lead vocals [3–5, 7–10]"."""
-    return (" \u00b7 " if any(g.endswith("]") for g in groups) else ", ").join(groups)
+    """A person's roles as the page writes them, joined by commas. Track
+    numbers go in square brackets, which the viewer draws small and grey
+    without the brackets, so the comma after them still reads as a break:
+    "Backing vocals [3, 9], Performer, Lead vocals [3–5, 7–10]"."""
+    return ", ".join(groups)
 
 
 # ---------------------------------------------------------------- people across the library
@@ -463,7 +462,7 @@ def page_text(key, album, rec, chosen, links, editions=None):
     own styles, not as written: "#facts" and "#status" as small grey lines
     under the title, "## Group" as a bold heading, "#sources" as the small
     grey line at the end; "#links" starts the hidden Other Appearances list.
-    A person is "Name<TAB>Role, Role [2, 5] · Role": what's in square
+    A person is "Name<TAB>Role, Role [2, 5], Role": what's in square
     brackets is track numbers, drawn small and grey."""
     lines = []
     used = [src for src in ("MusicBrainz", "Discogs") if src in {s for s, _ in chosen.values()}]

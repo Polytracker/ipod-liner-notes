@@ -65,7 +65,10 @@ class Songs(unittest.TestCase):
 class Checks(unittest.TestCase):
     def test_usable(self):
         self.assertEqual(tn.usable(INTRO, "Radiohead"), "")
-        self.assertEqual(tn.usable("Short.", "Radiohead"), "too short")
+        self.assertIn("too short", tn.usable("Short.", "Radiohead"))
+        dre = ('"Still D.R.E." is a song by American rapper and record producer Dr. Dre, featuring Snoop Dogg. '
+               + "x" * 300)
+        self.assertEqual(tn.usable(dre, "Dr. Dre"), "")
         self.assertIn("other meanings", tn.usable("Lucky may refer to: " + "x" * 400, "Radiohead"))
         cover = INTRO.replace("the English rock band Radiohead", "the American singer Someone Else")
         self.assertIn("cover", tn.usable(cover + " Radiohead covered it.", "Radiohead"))
@@ -77,3 +80,17 @@ class Checks(unittest.TestCase):
         self.assertTrue(lines[3].startswith("Karma Police is a song"))
         self.assertEqual(lines[-1], "#sources\tFrom the introduction to the Wikipedia article "
                                     "\"Karma Police\", CC BY-SA 4.0, retrieved 17 Nov 2026")
+
+
+class FillOut(unittest.TestCase):
+    def test_short_lead_gets_background_paragraph(self):
+        lead = '"War Pigs" is an anti-war song by the English heavy metal band Black Sabbath.'
+        article = (lead + "\n\n== Track listing ==\nSide one, a very long list of tracks that should never be used here.\n"
+                   "== Background ==\nThe song was first called Walpurgis, after the witches' sabbath, and its lyrics "
+                   "were written by Geezer Butler about the Vietnam War and the politicians who sent others to fight.\n")
+        tn.wiki_article = lambda title, session: (article, "")
+        text, part = tn.fill_out(lead, "War Pigs", None)
+        self.assertEqual(part, "excerpts")
+        self.assertIn("Walpurgis", text)
+        self.assertNotIn("Side one", text)
+        self.assertEqual(tn.fill_out("x" * 400, "A", None), ("x" * 400, "introduction"))

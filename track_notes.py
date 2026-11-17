@@ -15,8 +15,10 @@ their titles: Wikidata lists an album's songs (its "tracklist", and songs
 that say they are "part of" it), and a song counts only when its title
 matches one of your tracks. Its introduction must be a real write-up (300
 characters or more, not a list of other meanings) and must name the artist
-in its first sentence, so the article about the original of a cover isn't
-used for the cover.
+in its opening, so the article about the original of a cover isn't used for
+the cover. Many songs' introductions are a sentence or two; those get the
+first paragraph of the article's background (or writing, recording…)
+section after them, as the Album pages add one from the reception.
 
 Requests: about two to Wikidata per album with a Wikidata item, and one to
 Wikipedia per 20 songs found. What was found is kept, so later runs only
@@ -45,7 +47,7 @@ try:
     import ids
     import translate as tr
     from credits import page_on, fold
-    from liner_notes import wiki_summaries
+    from liner_notes import wiki_summaries, wiki_article, sections, paragraphs
 except ModuleNotFoundError as e:
     print(f"Missing something: {e}")
     print("Put this file next to ids.py, credits.py, artist_bios.py and translate.py.")
@@ -56,6 +58,11 @@ WIKIDATA = "https://www.wikidata.org/w/api.php"
 WIKIPEDIA = "https://en.wikipedia.org/w/api.php"
 RECHECK_DAYS = 180
 MIN_CHARS = 300
+VERSION = 2           # albums looked up by an older version are looked up again
+# sections a short lead is filled out from, in order of preference; never lists or tables
+BODY_SECTIONS = (r"background", r"writing|composition|recording|production", r"music|lyrics|theme",
+                 r"history|release", r"^(?!.*(track|personnel|chart|certif|reference|note|cover|"
+                 r"version|link|further|see also|accolade|single)).*$")
 PAGE_SETTING = "track page"
 
 
@@ -113,31 +120,48 @@ def match_tracks(tracks, songs):
                 out.setdefault(i, article)
     return out
 
-def first_sentence(text):
-    m = re.match(r"(.+?[.!?])(\s|$)", text.strip(), re.S)
-    return m.group(1) if m else text.strip()
+def opening(text, chars=200):
+    """The start of an introduction, where it says whose song it is. Not cut
+    at the first full stop: "…by American rapper Dr. Dre" has one early."""
+    return text.strip()[:chars]
 
-def usable(intro, artist):
+def fill_out(lead, article, session):
+    """A lead under MIN_CHARS with the first paragraph from the article's
+    background (or writing, recording…) section after it, as the Album pages
+    add a paragraph from the reception: (text, "excerpts"), or (lead, "introduction")."""
+    if len(lead) >= MIN_CHARS:
+        return lead, "introduction"
+    text, _ = wiki_article(article, session)
+    secs = sections(text)[1:] if text else []
+    for want in BODY_SECTIONS:
+        for head, body in secs:
+            if re.search(want, head, re.I):
+                paras = paragraphs(body)
+                if paras:
+                    return lead.rstrip() + "\n" + paras[0], "excerpts"
+    return lead, "introduction"
+
+def usable(intro, artist, need=MIN_CHARS):
     """Why an introduction can't be used, or "" if it can."""
     if not intro:
         return "no introduction"
-    if len(intro) < MIN_CHARS:
-        return "too short"
+    if len(intro) < need:
+        return "too short, even with a paragraph from the article"
     if re.search(r"\bmay (also )?refer to\b", intro[:300]):
         return "a list of other meanings"
     names = [fold(a) for a in re.split(r"\s*(?:,|&| and | feat\.? | with )\s*", artist) if a.strip()]
-    lead = fold(first_sentence(intro))
+    lead = fold(opening(intro))
     if not any(n and n in lead for n in names + [fold(artist)]):
         return "doesn't name the artist first (perhaps the original of a cover)"
     return ""
 
 
 # ---------------------------------------------------------------- the page
-def page_text(title, place, album, intro, article, date):
-    """The Track file: "#title", a "#facts" line, the introduction's
-    paragraphs, and "#sources" crediting the article."""
+def page_text(title, place, album, intro, article, date, part="introduction"):
+    """The Track file: "#title", a "#facts" line, the text's paragraphs,
+    and "#sources" crediting the article."""
     paras = ab.trim_bio(intro).split("\n")
-    credit = tr.credit("wikipedia", title=article, date=date)[2:]       # without its "# "
+    credit = tr.credit("wikipedia", title=article, date=date, part=part)[2:]       # without its "# "
     lines = [f"#title\t{title}", f"#facts\tTrack {place} · {album}", ""]
     lines += [p for p in paras if p]
     lines += ["", f"#sources\t{credit}"]
@@ -194,7 +218,7 @@ def main(argv=None):
                 continue
             path = CACHE / "albums" / f"{name}.json"
             seen = ab.load_json(path) or {}
-            fresh = seen.get("wikidata") == q and not args.refresh and \
+            fresh = seen.get("wikidata") == q and seen.get("version") == VERSION and not args.refresh and \
                 time.time() - seen.get("checked", 0) < RECHECK_DAYS * 86400
             if not fresh:
                 counts["albums looked up"] += 1
@@ -205,10 +229,16 @@ def main(argv=None):
                 for m in range(0, len(articles), 20):
                     intros.update(wiki_summaries(articles[m:m + 20], session))
                 today = time.strftime("%Y-%m-%d")
-                seen = {"wikidata": q, "checked": int(time.time()), "songs": {}}
+                seen = {"wikidata": q, "version": VERSION, "checked": int(time.time()), "songs": {}}
+                filled = {}
                 for i, article in sorted(found.items()):
-                    why = usable(intros.get(article, ""), album["artist"])
-                    seen["songs"][str(i)] = {"article": article, "text": "" if why else intros[article],
+                    lead = intros.get(article, "")
+                    why = usable(lead, album["artist"], need=0)
+                    if not why and article not in filled:
+                        filled[article] = fill_out(lead, article, session)
+                    text, part = filled.get(article, (lead, "introduction"))
+                    why = why or usable(text, album["artist"])
+                    seen["songs"][str(i)] = {"article": article, "text": "" if why else text, "part": part,
                                              "why": why, "date": today}
                 ab.save_json(path, seen)
             for i, song in sorted(seen.get("songs", {}).items(), key=lambda kv: int(kv[0])):
@@ -220,7 +250,7 @@ def main(argv=None):
                 if not fname:
                     continue
                 text = page_text(title, track_number(album, int(i)), album["album"],
-                                 song["text"], song["article"], song.get("date"))
+                                 song["text"], song["article"], song.get("date"), song.get("part", "introduction"))
                 mp = CACHE / f"{fname}.json"
                 meta = ab.load_json(mp) or {"key": f"{album['artist']} - {title}"}
                 res = ab.write_if_ours(out_dir / f"{fname}.txt", text.encode("utf-8"), meta, "txt_sha1")

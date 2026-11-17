@@ -46,6 +46,8 @@ class Roles(unittest.TestCase):
         self.assertEqual(cr.dc_role("Synthesizer [Moog]"), "Synthesizer (Moog)")
         self.assertEqual(cr.dc_role("Mixed By"), "Mixed by")
         self.assertEqual(cr.dc_role("Written-By"), "Written-by")
+        self.assertEqual(cr.dc_role("Engineer [Engineered By]"), "Engineer")
+        self.assertEqual(cr.dc_role("Arranged By [Strings]"), "Arranged by (Strings)")
 
 
 class FromSources(unittest.TestCase):

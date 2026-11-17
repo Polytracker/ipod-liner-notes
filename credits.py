@@ -113,7 +113,12 @@ def dc_role(role):
     """Discogs writes "Guitar [Electric]" and "Recorded By"; the page says
     "Guitar (Electric)" and "Recorded by". What's in brackets keeps its
     capitals ("Synthesizer (Moog)")."""
-    role = re.sub(r"\s*\[([^\]]*)\]", r" (\1)", role.strip())
+    base = re.sub(r"\s*\[.*", "", role.strip()).lower()
+
+    def bracket(m):                           # "Engineer [Engineered By]" says it twice
+        inner = m.group(1).strip()
+        return "" if base and inner.lower().startswith(base[:5]) else f" ({inner})"
+    role = re.sub(r"\s*\[([^\]]*)\]", bracket, role.strip())
     role = re.sub(r"(?<=[\s-])By\b", "by", role)
     return cap(role)
 

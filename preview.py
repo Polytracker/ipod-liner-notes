@@ -586,7 +586,7 @@ def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, t
         # A track's opening quote: "hang" puts it in the margin, so every row's
         # first letter and second line line up; "indent" moves the second line
         # in to the letter after it; "none" leaves both at the quote.
-        q = body.text_width("\u201c") if main.startswith("\u201c") else 0
+        q = body.text_width(main[0]) if main[:1] in ("\u201c", "\u2018") else 0
         x = clipped(img, body, 10 + ix - (q if quote == "hang" else 0), y + 6, main, ink)
         if extra:
             clipped(img, body, x, y + 6, f", {extra}", ink)
@@ -632,14 +632,14 @@ def person_icons(rows):
     """Scrim's icon per row of person_rows: "d" (its Album disc) or "a" (a note)."""
     return ["a" if r[0] == "T" else "d" for r in sorted(rows, key=lambda r: (r[1].lower(), r[2].lower(), r[3].lower()))]
 
-def person_rows(rows):
+def person_rows(rows, quotes="\u201c\u201d"):
     """(first line, grey after it, second line) for one person's own list:
     albums and tracks together, by artist and then album, so a track sits
     with the others from its album. A track's second line names its album."""
     out = []
     for k, art, alb, t, role in sorted(rows, key=lambda r: (r[1].lower(), r[2].lower(), r[3].lower())):
         if k == "T":
-            out.append((f"\u201c{t}\u201d", art, f"{role}, on {alb}" if role else f"On {alb}"))
+            out.append((f"{quotes[0]}{t}{quotes[1]}", art, f"{role}, on {alb}" if role else f"On {alb}"))
         else:
             out.append((alb, art, role))
     return out

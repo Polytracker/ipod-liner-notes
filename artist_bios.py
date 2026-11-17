@@ -232,16 +232,16 @@ def pick_image(a):
     return None, None
 
 def genre_place(a):
-    """Genre and home town/country from TheAudioDB, e.g. "Indie, London"."""
+    """Genre and home town/country from TheAudioDB, e.g. "Indie · London"."""
     bits = [a.get("strGenre"), a.get("strCountry") and a["strCountry"].split(",")[0]]
-    return ", ".join(b.strip() for b in bits if b and b.strip())
+    return " \u00b7 ".join(b.strip() for b in bits if b and b.strip())
 
 def mb_genre_place(mb):
     """Genre and place from MusicBrainz, for artists TheAudioDB doesn't have."""
     if not mb:
         return ""
     genre = mb["tags"][0].title() if mb.get("tags") else ""
-    return ", ".join(b for b in (genre, mb.get("country") or "") if b)
+    return " \u00b7 ".join(b for b in (genre, mb.get("country") or "") if b)
 
 def year(v):
     v = str(v or "").strip()[:4]
@@ -272,7 +272,7 @@ def mb_dates(mb):
     return life_dates(mb.get("type") == "Person", mb.get("begin"), mb.get("end"))
 
 def join_subtitle(*bits):
-    return ", ".join(b for b in bits if b)
+    return " \u00b7 ".join(b for b in bits if b)
 
 NAME_BYTES = 230      # the iPod opens no file whose name, ".txt" included, passes 260 bytes
 
@@ -1120,7 +1120,7 @@ def write_files(meta, out_dir, args, name, rebuild):
     `rebuild` (a new photo) or when the iPod has none. Returns how each went."""
     credit = tr.credit(meta.get("bio_source") or "", meta.get("bio_lang"), meta.get("bio_title"),
                        date=meta.get("bio_date") or meta.get("fetched"))
-    text = f"{meta['artist']}\n{(meta.get('subtitle') or '').replace(' · ', ', ')}\n\n{tr.plain(meta['bio'])}\n" \
+    text = f"{meta['artist']}\n{meta.get('subtitle', '')}\n\n{tr.plain(meta['bio'])}\n" \
         + (f"{credit}\n" if credit and meta["bio"] else "")
     res = [write_if_ours(out_dir / f"{name}.txt", text.encode("utf-8"), meta, "txt_sha1")]
     photo = CACHE / f"{name}.jpg"

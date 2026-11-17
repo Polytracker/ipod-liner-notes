@@ -494,7 +494,7 @@ def plain_edition(edition, album_title):
         p = re.sub(r"\b(Digital Media|File)\b", lambda m: FORMATS[m.group(1)], p)
         if p:
             out.append(p)
-    return ", ".join(out)
+    return " \u00b7 ".join(out)
 
 def page_text(key, album, rec, chosen, links, editions=None):
     """The Credits file. Lines starting "#" are drawn by the viewer in its
@@ -513,7 +513,7 @@ def page_text(key, album, rec, chosen, links, editions=None):
         if not edition:
             continue
         lead = "Edition:" if len(used) == 1 else f"{src} edition:"
-        lines.append("#facts\t" + ", ".join(x for x in (f"{lead} {edition}", note) if x))
+        lines.append("#facts\t" + " \u00b7 ".join(x for x in (f"{lead} {edition}", note) if x))
     lines.append(f"#status\t{status_line(len(links))}")
     for group in ids.GROUPS:
         if group not in chosen:

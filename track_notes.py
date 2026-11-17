@@ -224,7 +224,7 @@ def page_text(title, place, album, paras):
     "#sources" from the credit line ("# From …") the ladder ends them with."""
     body = [tr.plain(p) for p in paras if p and not p.startswith("# ")]
     credit = next((p[2:] for p in paras if p.startswith("# ")), "")
-    lines = [f"#title\t{title}", f"#facts\tTrack {place}, {album}", ""] + body
+    lines = [f"#title\t{title}", f"#facts\tTrack {place} \u00b7 {album}", ""] + body
     if credit:
         lines += ["", f"#sources\t{credit}"]
     return "\n".join(lines) + "\n"

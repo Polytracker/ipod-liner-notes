@@ -159,7 +159,7 @@ def release_year(info, found):
 
 def facts_line(info, year, label):
     n = info["tracks"]
-    return ", ".join(x for x in (
+    return " \u00b7 ".join(x for x in (
         info["artist"], year, info["label"] or label or "",
         f"{n} track{'s' if n != 1 else ''}",
         f"{info['minutes']} min" if info["minutes"] else "") if x)
@@ -453,7 +453,7 @@ def english_notes(title, session, sure):
         paras += ["# Critical reception", rec]
     sc = scores(wt)
     if sc:
-        paras.append("# " + ", ".join(sc))
+        paras.append("# " + " \u00b7 ".join(sc))
     paras.append(tr.credit("wikipedia", title=title, part="excerpts" if rec else "introduction"))
     return paras, "wikipedia" + ("" if sure else " (not confirmed)")
 
@@ -500,15 +500,6 @@ def lastfm_notes(info, names, session, key, lang=None, mbid=None):
         if len(text) > 80:
             return text
     return ""
-
-def commas(line):
-    """The facts line with commas, as on the Track and Credits pages (Joe, 17 Nov);
-    also for lines saved before the change."""
-    return (line or "").replace(" · ", ", ")
-
-def commas_scores(notes):
-    """The same for a saved notes' review-scores line ("# AllMusic 4/5 · …")."""
-    return "\n".join(commas(l) if l.startswith("# ") and " · " in l else l for l in notes.split("\n"))
 
 def ids_record(info):
     """What ids.py settled about this album (its MusicBrainz release and
@@ -762,7 +753,7 @@ def main(argv=None):
                     facts = facts_line(info, meta["year"], meta.get("label", ""))
                 else:                   # a record from before the year was looked up: as it was
                     facts = meta.get("facts", "")
-                text = f"{clean_title(info['album'])}\n{commas(facts)}\n\n{commas_scores(tr.plain(meta['notes']))}\n"
+                text = f"{clean_title(info['album'])}\n{facts}\n\n{tr.plain(meta['notes'])}\n"
                 res = [ab.write_if_ours(out_dir / f"{name}.txt", text.encode("utf-8"), meta, "txt_sha1")]
                 jpg = out_dir / f"{name}.jpg"
                 if not args.no_banners and (fresh or not jpg.exists()):

@@ -86,7 +86,7 @@ class Checks(unittest.TestCase):
     def test_page_text(self):
         paras = tn.english_paras(INTRO, "introduction", "Karma Police", "2026-11-17")
         lines = tn.page_text("Karma Police", "6", "OK Computer", paras).splitlines()
-        self.assertEqual(lines[:2], ["#title\tKarma Police", "#facts\tTrack 6, OK Computer"])
+        self.assertEqual(lines[:2], ["#title\tKarma Police", "#facts\tTrack 6 · OK Computer"])
         self.assertTrue(lines[3].startswith("Karma Police is a song"))
         self.assertEqual(lines[-1], "#sources\tFrom the introduction to the Wikipedia article "
                                     "\"Karma Police\", CC BY-SA 4.0, retrieved 17 Nov 2026")

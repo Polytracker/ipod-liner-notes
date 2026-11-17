@@ -679,6 +679,9 @@ def main(argv=None):
     if not music.is_dir():
         print(f"Can't find {music}")
         return 1
+    if not ab.ipod_page_on(Path(args.ipod) if args.ipod else music.resolve().parent, "album notes"):
+        print("Album Notes is switched off on the iPod, so no album notes are fetched.")
+        return 0
     out_dir = Path(args.ipod) / "Artwork" / "Notes" if args.ipod else music.resolve().parent / "Artwork" / "Notes"
     out_dir.mkdir(parents=True, exist_ok=True)
     CACHE.mkdir(parents=True, exist_ok=True)

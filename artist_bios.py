@@ -1148,6 +1148,22 @@ def settings():
             conf[" ".join(name.lower().split())] = value.strip()
     return conf
 
+def ipod_page_on(ipod, page):
+    """Whether a Liner Notes page ("artist bio", "album notes", "track notes",
+    "credits") is switched on in the iPod's own settings: the "liner notes"
+    switch and the page's. PodBox writes only settings changed from their
+    default, so no line means on."""
+    try:
+        lines = (Path(ipod) / ".rockbox" / "config.cfg").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return True
+    off = set()
+    for line in lines:
+        name, colon, value = line.partition(":")
+        if colon and value.strip().lower() in ("off", "no", "0"):
+            off.add(name.strip().lower())
+    return "liner notes" not in off and f"liner notes {page}" not in off
+
 def setting_on(conf, name, default):
     value = conf.get(name, "").lower()
     if not value:
@@ -1225,6 +1241,9 @@ def main(argv=None):
     if not music.is_dir():
         print(f"Can't find {music}")
         return 1
+    if not ipod_page_on(Path(args.ipod) if args.ipod else music.resolve().parent, "artist bio"):
+        print("Artist Bio is switched off on the iPod, so no bios are fetched.")
+        return 0
     out_dir = Path(args.ipod) / "Artwork" / "Bios" if args.ipod else music.resolve().parent / "Artwork" / "Bios"
     out_dir.mkdir(parents=True, exist_ok=True)
     CACHE.mkdir(parents=True, exist_ok=True)

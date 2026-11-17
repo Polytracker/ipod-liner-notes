@@ -209,14 +209,17 @@ class Links(unittest.TestCase):
                          ["A\tBand\tTwo\tProducer"])
 
     def test_page_switch(self):
-        d = Path(tempfile.mkdtemp())
-        self.assertTrue(cr.page_on(d))                           # no settings file: on
-        (d / ".rockbox").mkdir()
-        (d / ".rockbox" / "config.cfg").write_text("volume: -20\ncredits page: off\n")
-        self.assertFalse(cr.page_on(d))
+        import tempfile, artist_bios as ab
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(ab.ipod_page_on(d, "credits"))          # no settings file: on
+            (Path(d) / ".rockbox").mkdir()
+            cfg = Path(d) / ".rockbox" / "config.cfg"
+            cfg.write_text("liner notes credits: off\n")
+            self.assertFalse(ab.ipod_page_on(d, "credits"))
+            self.assertTrue(ab.ipod_page_on(d, "track notes"))
+            cfg.write_text("liner notes: off\n")
+            self.assertFalse(ab.ipod_page_on(d, "track notes"))
 
-
-class CreditTags(unittest.TestCase):
     def test_vorbis_and_id3_people(self):
         self.assertEqual(ids.credit_pairs("PERFORMER", ["Ann (drums)", "Bob"]),
                          [("Ann", "drums", "Musicians"), ("Bob", "performer", "Musicians")])

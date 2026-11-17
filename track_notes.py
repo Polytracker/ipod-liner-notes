@@ -55,7 +55,7 @@ try:
     import artist_bios as ab
     import ids
     import translate as tr
-    from credits import page_on, fold
+    from credits import fold
     from liner_notes import (wiki_summaries, wiki_article, sections, paragraphs, foreign_notes,
                              artist_language, artist_ids)
 except ModuleNotFoundError as e:
@@ -73,7 +73,6 @@ VERSION = 5           # albums looked up by an older version are looked up again
 BODY_SECTIONS = (r"background", r"writing|composition|recording|production", r"music|lyrics|theme",
                  r"history|release", r"^(?!.*(track|personnel|chart|certif|reference|note|cover|"
                  r"version|link|further|see also|accolade|single)).*$")
-PAGE_SETTING = "track page"
 
 
 # ---------------------------------------------------------------- Wikidata
@@ -303,7 +302,7 @@ def main(argv=None):
 
     music = Path(args.music_root)
     ipod = Path(args.ipod) if args.ipod else music.resolve().parent
-    if not page_on(ipod, PAGE_SETTING):
+    if not ab.ipod_page_on(ipod, "track notes"):
         print("The Track page is switched off on the iPod, so no track notes are fetched.")
         return 0
     lib = ids.library().get("albums") or {}

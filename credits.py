@@ -58,7 +58,6 @@ except ModuleNotFoundError as e:
 CACHE = ab.CACHE.parent / "credits"
 VARIOUS_DC = {194, 355}                      # Discogs "Various", "Unknown Artist"
 MEMBER_TYPES = {"member of band", "is person", "collaboration", "subgroup"}
-PAGE_SETTING = "credits page"                # the iPod's on/off switch in config.cfg
 
 
 # ---------------------------------------------------------------- small helpers
@@ -76,18 +75,6 @@ def dc_name(s):
 def cap(s):
     return s[:1].upper() + s[1:] if s else s
 
-def page_on(ipod, setting=PAGE_SETTING):
-    """Whether a viewer page is switched on in the iPod's settings. PodBox
-    writes only settings changed from their default, so no line means on."""
-    try:
-        lines = (Path(ipod) / ".rockbox" / "config.cfg").read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return True
-    for line in lines:
-        name, colon, value = line.partition(":")
-        if colon and name.strip().lower() == setting:
-            return value.strip().lower() not in ("off", "no", "0")
-    return True
 
 
 # ---------------------------------------------------------------- roles
@@ -551,7 +538,7 @@ def main(argv=None):
 
     music = Path(args.music_root)
     ipod = Path(args.ipod) if args.ipod else music.resolve().parent
-    if not page_on(ipod):
+    if not ab.ipod_page_on(ipod, "credits"):
         print("The Credits page is switched off on the iPod, so no credits are fetched.")
         return 0
     lib_all = ids.library()

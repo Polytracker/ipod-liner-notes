@@ -388,3 +388,22 @@ class FromDiscogs(unittest.TestCase):
                          ("release-group/RG", {"relations": []})])
         r = ids.MusicBrainz(site, FakeSite([])).from_discogs(a, {"id": 5, "master": 9}, [])
         self.assertEqual((r["id"], r["rung"]), ("R-durutti", "discogs link"))
+
+
+class SplitFolders(unittest.TestCase):
+    def test_one_album_across_two_folders(self):
+        d1 = album("Muse", "Hullabaloo", [("A", 100, "I1"), ("B", 100, "I2")], folder="d1",
+                   tag_credits=[["Pat", "producer", "Producers", 1]])
+        d2 = album("Muse", "Hullabaloo", [("C", 100, "I3")], folder="d2", barcode="123",
+                   tag_credits=[["Kay", "composer", "Songwriters", 0]])
+        for t in d2["tracks"]:
+            t["disc"] = 2
+        other = album("Muse", "Absolution", [("X", 100, "")], folder="d3", tag_credits=[])
+        got = ids.merge_folders([d1, other, d2])
+        self.assertEqual([a["key"] for a in got], ["Muse - Hullabaloo", "Muse - Absolution"])
+        m = got[0]
+        self.assertEqual([t["title"] for t in m["tracks"]], ["A", "B", "C"])
+        self.assertEqual([t["i"] for t in m["tracks"]], [0, 1, 2])
+        self.assertEqual(m["barcode"], "123")
+        self.assertEqual(sorted(c[3] for c in m["tag_credits"]), [1, 2])     # Kay is on track C, now 2
+        self.assertEqual(m["folders"], ["d1", "d2"])

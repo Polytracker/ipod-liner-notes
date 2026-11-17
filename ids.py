@@ -260,7 +260,39 @@ def scan(music, only=None, quiet=False):
                 print(f"\r  {len(albums)} albums read", end="", flush=True)
     if not quiet:
         print()
-    return albums
+    return merge_folders(albums)
+
+def merge_folders(albums):
+    """One album per album name, as the iPod sees it: an album split across
+    folders (a disc in each, say) becomes one album with all its tracks,
+    in disc and track order, so it's identified whole and has one record."""
+    by_key, order = {}, []
+    for a in albums:
+        first = by_key.get(a["key"])
+        if first is None:
+            by_key[a["key"]] = a
+            order.append(a["key"])
+            continue
+        shift = len(first["tracks"])
+        for t in a["tracks"]:
+            t["i"] += shift
+        first["tracks"] += a["tracks"]
+        first["tag_credits"] += [[w, r, g, i + shift] for w, r, g, i in a["tag_credits"]]
+        first["links"] = list(dict.fromkeys(first["links"] + a["links"]))
+        first.setdefault("folders", [first["folder"]]).append(a["folder"])
+        for field in ("mb_album", "barcode", "catno", "label", "discid", "discogs"):
+            first[field] = first[field] or a[field]
+    out = []
+    for k in order:
+        a = by_key[k]
+        if "folders" in a:                       # merged: put the tracks in order and number them again
+            a["tracks"].sort(key=lambda t: (t["disc"], t["num"], t["file"]))
+            place = {t["i"]: n for n, t in enumerate(a["tracks"])}
+            for n, t in enumerate(a["tracks"]):
+                t["i"] = n
+            a["tag_credits"] = [[w, r, g, place[i]] for w, r, g, i in a["tag_credits"]]
+        out.append(a)
+    return out
 
 def signature(album):
     """Changes when the IDs in the tags or the track list change."""

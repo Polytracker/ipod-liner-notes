@@ -43,6 +43,7 @@ LAYOUT = {
     "margin": 10,                 # left and right; text is 300 px wide
     "strip": 20,                  # the page names, pinned at the top
     "strip_gap": 16,              # between page names
+    "strip_over_banner": True,    # Bio and Album: the banner at the very top, the page names over the photo
     "fonts": {"title": "26-noto-sans-medium", "small": "14-noto-sans",
               "body": "18-noto-sans", "head": "18-noto-sans-bold"},
     "hang": 0,                    # indent for a person's row that wraps (Joe chose none)
@@ -395,6 +396,9 @@ def screen(fonts, title, page, cover, scroll=0, current="Credits", banner=None):
     W, H, S = LAYOUT["width"], LAYOUT["height"], LAYOUT["strip"]
     art = banner or cover
     pair = backdrop(art) if art else None
+    # pages with a banner start at the very top, the names over the photo
+    if current in ("Bio", "Album") and banner is not None and LAYOUT["strip_over_banner"]:
+        S = 0
     # the backdrop moves with the page: page row y sits over backdrop row y
     img = backdrop_at(pair, scroll - S, H) if pair else background(None, H)
     base = img.getpixel((W // 2, H // 2))
@@ -418,10 +422,18 @@ def screen(fonts, title, page, cover, scroll=0, current="Credits", banner=None):
     img.paste(text, (0, S), text)
     small = fonts["small"]
     names = LAYOUT["pages"]
+    strip = LAYOUT["strip"]
+    if S == 0 and scroll < 160:
+        # over the photo: a soft shadow down from the top edge, so the names read on any picture
+        shade = Image.new("L", (W, strip + 12))
+        for y in range(strip + 12):
+            shade.paste(int(150 * (1 - y / (strip + 12))), (0, y, W, y + 1))
+        img.paste((0, 0, 0), (0, 0), shade)
     total = sum(small.text_width(n) for n in names) + LAYOUT["strip_gap"] * (len(names) - 1)
     x = (W - total) // 2
     for n in names:
-        x = small.draw(img, x, (S - small.height) // 2, n, fg if n == current else dim) + LAYOUT["strip_gap"]
+        x = small.draw(img, x, (strip - small.height) // 2, n,
+                       fg if n == current else (210, 210, 210) if S == 0 else dim) + LAYOUT["strip_gap"]
     return img
 
 def render(fonts, title, page, cover):

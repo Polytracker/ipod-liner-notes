@@ -20,8 +20,14 @@ the cover. Many songs' introductions are a sentence or two; those get the
 first paragraph of the article's background (or writing, recording…)
 section after them, as the Album pages add one from the reception.
 
-Requests: about two to Wikidata per album with a Wikidata item, and one to
-Wikipedia per 20 songs found. What was found is kept, so later runs only
+Tracks with no usable Wikipedia text are looked up on Last.fm (as the Album
+pages fall back to it): by MusicBrainz recording when ids.py knows it, and
+used only when Last.fm puts the track on your album or by your artist, with
+the same checks. --no-lastfm leaves Last.fm out.
+
+Requests: about two to Wikidata per album with a Wikidata item, one to
+Wikipedia per 20 songs found, and one to Last.fm per other track (about
+4 a second; around 20 minutes for a 5,000-track library the first time). What was found is kept, so later runs only
 look at new albums, and look again at others after 180 days.
 
 Files you've edited yourself are never overwritten, and nothing is ever
@@ -165,12 +171,45 @@ def usable(intro, artist, need=MIN_CHARS, album=""):
     return ""
 
 
+# ---------------------------------------------------------------- Last.fm
+LASTFM = "https://ws.audioscrobbler.com/2.0/"
+
+def lastfm_track(artist, title, album, session, key, mbid=None):
+    """(text, why) from Last.fm's write-up of the track: asked by its
+    MusicBrainz recording when known, else by artist and title, and used only
+    when Last.fm puts it on your album or by your artist (a same-named song by
+    someone else is never used)."""
+    asks = ([{"mbid": mbid}] if mbid else []) + [{"artist": artist, "track": title}]
+    for ask in asks:
+        time.sleep(0.25)                                   # Last.fm asks for no more than 5 a second
+        try:
+            r = session.get(LASTFM, headers=ab.UA, timeout=20,
+                            params={"method": "track.getinfo", "api_key": key, "format": "json", **ask})
+        except requests.RequestException:
+            return "", "Last.fm didn't answer"
+        if not r.ok:
+            continue
+        t = r.json().get("track") or {}
+        if not t:
+            continue
+        theirs_album = fold(((t.get("album") or {}).get("title")) or "")
+        theirs_artist = fold(((t.get("artist") or {}).get("name")) or "")
+        if not (theirs_artist == fold(artist) or (theirs_album and theirs_album == fold(ids.plain_album(album)))):
+            continue
+        raw = ((t.get("wiki") or {}).get("content")) or ((t.get("wiki") or {}).get("summary")) or ""
+        raw = re.split(r"User-contributed text is available|<a href=\"https?://www\.last\.fm[^>]*>Read more", raw)[0]
+        text = "\n".join(p for p in (ab.strip_markup(x) for x in re.split(r"\n+", raw)) if p)
+        if text:
+            return text, ""
+    return "", "no Last.fm write-up"
+
+
 # ---------------------------------------------------------------- the page
-def page_text(title, place, album, intro, article, date, part="introduction"):
+def page_text(title, place, album, intro, article, date, part="introduction", source="wikipedia"):
     """The Track file: "#title", a "#facts" line, the text's paragraphs,
-    and "#sources" crediting the article."""
+    and "#sources" crediting where it came from."""
     paras = ab.trim_bio(intro).split("\n")
-    credit = tr.credit("wikipedia", title=article, date=date, part=part)[2:]       # without its "# "
+    credit = tr.credit(source, title=article, date=date, part=part)[2:]       # without its "# "
     lines = [f"#title\t{title}", f"#facts\tTrack {place}, {album}", ""]
     lines += [p for p in paras if p]
     lines += ["", f"#sources\t{credit}"]
@@ -192,7 +231,10 @@ def main(argv=None):
     ap.add_argument("--ipod", help="the iPod's own folder (default: the folder holding the music folder)")
     ap.add_argument("--only", action="append", default=[], help='"Artist - Album" (can be given more than once)')
     ap.add_argument("--refresh", action="store_true", help="look every album up again")
+    ap.add_argument("--no-lastfm", action="store_true",
+                    help="Wikipedia only: don't ask Last.fm about tracks without an article")
     args = ap.parse_args(argv)
+    lastfm_key = None if args.no_lastfm else (ab.af.load_credentials().lastfm_api_key or None)
 
     music = Path(args.music_root)
     ipod = Path(args.ipod) if args.ipod else music.resolve().parent
@@ -210,18 +252,21 @@ def main(argv=None):
             records[rec["key"]] = rec
     only = {ab.norm(o) for o in args.only}
     keys = [k for k in sorted(lib) if not only or ab.norm(k) in only or ab.norm(lib[k]["artist"]) in only]
-    keys = [k for k in keys if ((records.get(k) or {}).get("mb") or {}).get("wikidata")]
-    print(f"{len(keys)} albums have a Wikidata item to find their songs from.")
+    with_q = [k for k in keys if ((records.get(k) or {}).get("mb") or {}).get("wikidata")]
+    print(f"{len(with_q)} albums have a Wikidata item to find their songs on Wikipedia from."
+          + (" Last.fm is asked about the other tracks." if lastfm_key else ""))
+    if not lastfm_key:
+        keys = with_q
 
     out_dir = ipod / "Artwork" / "Tracks"
     out_dir.mkdir(parents=True, exist_ok=True)
     (CACHE / "albums").mkdir(parents=True, exist_ok=True)
     session = requests.Session()
-    counts = {"written": 0, "same": 0, "kept": 0, "albums looked up": 0}
+    counts = {"written": 0, "same": 0, "kept": 0, "albums looked up": 0, "Last.fm asked": 0}
     rejected = []
     try:
         for n, k in enumerate(keys, 1):
-            album, q = lib[k], records[k]["mb"]["wikidata"]
+            album, q = lib[k], ((records.get(k) or {}).get("mb") or {}).get("wikidata")
             name = ab.safe_name(k)
             if not name:
                 continue
@@ -229,7 +274,9 @@ def main(argv=None):
             seen = ab.load_json(path) or {}
             fresh = seen.get("wikidata") == q and seen.get("version") == VERSION and not args.refresh and \
                 time.time() - seen.get("checked", 0) < RECHECK_DAYS * 86400
-            if not fresh:
+            if not q:
+                seen.setdefault("songs", {})
+            elif not fresh:
                 counts["albums looked up"] += 1
                 songs = english_titles(album_songs(q, session), session)
                 found = match_tracks(album["tracks"], songs)
@@ -250,16 +297,39 @@ def main(argv=None):
                     seen["songs"][str(i)] = {"article": article, "text": "" if why else text, "part": part,
                                              "why": why, "date": today}
                 ab.save_json(path, seen)
+            if lastfm_key:
+                looked = seen.setdefault("lastfm", {})
+                if time.time() - looked.get("checked", 0) >= RECHECK_DAYS * 86400 or args.refresh:
+                    looked.clear()
+                    looked["checked"] = int(time.time())
+                tracks_mb = ((records.get(k) or {}).get("mb") or {}).get("tracks") or {}
+                for i, (_, _, title) in enumerate(album["tracks"]):
+                    if (seen["songs"].get(str(i)) or {}).get("text") or str(i) in looked:
+                        continue
+                    text, why = lastfm_track(album["artist"], title, album["album"], session, lastfm_key,
+                                             (tracks_mb.get(str(i)) or {}).get("recording"))
+                    why = why or usable(text, album["artist"], album=album["album"])
+                    looked[str(i)] = {"text": "" if why else text, "why": why, "date": time.strftime("%Y-%m-%d")}
+                    counts["Last.fm asked"] += 1
+                ab.save_json(path, seen)
+            pages = []
+            for i, song in seen.get("songs", {}).items():
+                if song.get("text"):
+                    pages.append((i, song["text"], song["article"], song.get("part", "introduction"),
+                                  song.get("date"), "wikipedia"))
+            for i, song in (seen.get("lastfm") or {}).items():
+                if i != "checked" and song.get("text") and not (seen["songs"].get(i) or {}).get("text"):
+                    pages.append((i, song["text"], None, "introduction", song.get("date"), "lastfm"))
             for i, song in sorted(seen.get("songs", {}).items(), key=lambda kv: int(kv[0])):
-                if not song.get("text"):
+                if not song.get("text") and not ((seen.get("lastfm") or {}).get(i) or {}).get("text"):
                     rejected.append(f"{k}: \"{album['tracks'][int(i)][2]}\" ({song['article']}): {song.get('why')}")
-                    continue
+            for i, text, article, part, date, source in sorted(pages, key=lambda p: int(p[0])):
                 title = album["tracks"][int(i)][2]
                 fname = ab.safe_name(f"{album['artist']} - {title}")
                 if not fname:
                     continue
                 text = page_text(title, track_number(album, int(i)), album["album"],
-                                 song["text"], song["article"], song.get("date"), song.get("part", "introduction"))
+                                 text, article, date, part, source)
                 mp = CACHE / f"{fname}.json"
                 meta = ab.load_json(mp) or {"key": f"{album['artist']} - {title}"}
                 res = ab.write_if_ours(out_dir / f"{fname}.txt", text.encode("utf-8"), meta, "txt_sha1")
@@ -273,7 +343,8 @@ def main(argv=None):
     report.write_text("Songs with an English Wikipedia article whose introduction wasn't used, and why.\n\n"
                       + "\n".join(rejected) + "\n", encoding="utf-8")
     print(f"Track notes written or updated: {counts['written']}, unchanged: {counts['same']}, "
-          f"kept as you left them: {counts['kept']}. Albums looked up: {counts['albums looked up']}. "
+          f"kept as you left them: {counts['kept']}. Albums looked up: {counts['albums looked up']}, "
+          f"Last.fm asked about {counts['Last.fm asked']} tracks. "
           f"Not used: {len(rejected)} (listed in \"{report.name}\").")
     return 0
 

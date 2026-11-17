@@ -112,3 +112,27 @@ class Continue(unittest.TestCase):
             return {"query": {"pages": [{"title": "A"}, {"title": "B", "extract": "b" * 50}]}}
         got = ln.wiki_summaries(["A", "B"], FakeSession(answer))
         self.assertEqual(sorted(got), ["A", "B"])
+
+
+class LastFm(unittest.TestCase):
+    def setUp(self):
+        tn.time.sleep = lambda s: None
+
+    def answer(self, artist, album, text):
+        return lambda url, p: {"track": {"artist": {"name": artist}, "album": {"title": album},
+                                         "wiki": {"content": text + ' <a href="https://www.last.fm/music/x">Read more on Last.fm</a>. '
+                                                  "User-contributed text is available under the Creative Commons"}}}
+
+    def test_used_when_on_your_album_or_by_your_artist(self):
+        s = FakeSession(self.answer("Radiohead", "OK Computer", "Airbag is the opening track."))
+        text, why = tn.lastfm_track("Radiohead", "Airbag", "OK Computer", s, "key", mbid="rec1")
+        self.assertEqual((text, why), ("Airbag is the opening track.", ""))
+        self.assertEqual(s.asked[0]["mbid"], "rec1")
+
+    def test_same_title_by_someone_else_is_not_used(self):
+        s = FakeSession(self.answer("Someone Else", "Another Album", "A different Airbag."))
+        self.assertEqual(tn.lastfm_track("Radiohead", "Airbag", "OK Computer", s, "key")[0], "")
+
+    def test_credit(self):
+        t = tn.page_text("Airbag", "1", "OK Computer", "x" * 10, None, "2026-11-17", source="lastfm")
+        self.assertEqual(t.splitlines()[-1], "#sources\tFrom Last.fm, CC BY-SA, retrieved 17 Nov 2026")

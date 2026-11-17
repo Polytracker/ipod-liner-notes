@@ -20,14 +20,17 @@ the cover. Many songs' introductions are a sentence or two; those get the
 first paragraph of the article's background (or writing, recording…)
 section after them, as the Album pages add one from the reception.
 
-Tracks with no usable Wikipedia text are looked up on Last.fm (as the Album
-pages fall back to it): by MusicBrainz recording when ids.py knows it, and
-used only when Last.fm puts the track on your album or by your artist, with
-the same checks. --no-lastfm leaves Last.fm out.
+Last.fm is asked only where Wikipedia couldn't be (as the Album pages fall
+back to it): songs Wikidata knows that have no usable English article
+("Airbag" is a redirect to its album's article), and every track on albums
+Wikidata doesn't have. It's asked by MusicBrainz recording when ids.py knows
+it, and its text is used only when Last.fm puts the track on your album or
+by your artist, with the same checks. --no-lastfm leaves Last.fm out.
 
 Requests: about two to Wikidata per album with a Wikidata item, one to
-Wikipedia per 20 songs found, and one to Last.fm per other track (about
-4 a second; around 20 minutes for a 5,000-track library the first time). What was found is kept, so later runs only
+Wikipedia per 20 songs found, and one to Last.fm per track it's asked about
+(about 4 a second; around 1,000 tracks, 4-5 minutes, the first time for
+Joe's library). What was found is kept, so later runs only
 look at new albums, and look again at others after 180 days.
 
 Files you've edited yourself are never overwritten, and nothing is ever
@@ -64,7 +67,7 @@ WIKIDATA = "https://www.wikidata.org/w/api.php"
 WIKIPEDIA = "https://en.wikipedia.org/w/api.php"
 RECHECK_DAYS = 180
 MIN_CHARS = 300
-VERSION = 3           # albums looked up by an older version are looked up again
+VERSION = 4           # albums looked up by an older version are looked up again
 # sections a short lead is filled out from, in order of preference; never lists or tables
 BODY_SECTIONS = (r"background", r"writing|composition|recording|production", r"music|lyrics|theme",
                  r"history|release", r"^(?!.*(track|personnel|chart|certif|reference|note|cover|"
@@ -94,7 +97,8 @@ def album_songs(album_q, session):
     return list(dict.fromkeys(found))
 
 def english_titles(items, session):
-    """{item: (English Wikipedia title, English label)} for the items that have an article."""
+    """{item: (English Wikipedia title or "", English label)}: every song item
+    with a name; "" where it has no English article (Last.fm is asked then)."""
     out = {}
     for n in range(0, len(items), 50):
         r = ab.wiki_get(session, WIKIDATA, {"action": "wbgetentities", "ids": "|".join(items[n:n + 50]),
@@ -103,9 +107,10 @@ def english_titles(items, session):
         if not r.ok:
             continue
         for q, e in (r.json().get("entities") or {}).items():
-            title = ((e.get("sitelinks") or {}).get("enwiki") or {}).get("title")
-            if title:
-                out[q] = (title, ((e.get("labels") or {}).get("en") or {}).get("value", ""))
+            title = ((e.get("sitelinks") or {}).get("enwiki") or {}).get("title") or ""
+            label = ((e.get("labels") or {}).get("en") or {}).get("value", "")
+            if title or label:
+                out[q] = (title, label)
     return out
 
 
@@ -115,14 +120,15 @@ def bare(title):
     return re.sub(r"\s*\([^)]*\)$", "", title or "").strip()
 
 def match_tracks(tracks, songs):
-    """{your track's place: article title} for songs whose title is one of your tracks'."""
+    """{your track's place: article title, or "" for a song with no English
+    article} for songs whose title is one of your tracks'."""
     by_title = {}
     for i, (_, _, title) in enumerate(tracks):
         by_title.setdefault(ids.clean_title(title), []).append(i)
     out = {}
-    for article, label in songs.values():
+    for article, label in sorted(songs.values(), key=lambda s: not s[0]):     # articles first
         for name in (bare(article), label):
-            for i in by_title.get(ids.clean_title(name), []):
+            for i in by_title.get(ids.clean_title(name), []) if name else []:
                 out.setdefault(i, article)
     return out
 
@@ -281,13 +287,17 @@ def main(argv=None):
                 songs = english_titles(album_songs(q, session), session)
                 found = match_tracks(album["tracks"], songs)
                 intros = {}
-                articles = sorted(set(found.values()))
+                articles = sorted({a for a in found.values() if a})
                 for m in range(0, len(articles), 20):
                     intros.update(wiki_summaries(articles[m:m + 20], session))
                 today = time.strftime("%Y-%m-%d")
                 seen = {"wikidata": q, "version": VERSION, "checked": int(time.time()), "songs": {}}
                 filled = {}
                 for i, article in sorted(found.items()):
+                    if not article:
+                        seen["songs"][str(i)] = {"article": "", "text": "", "why": "no English Wikipedia article",
+                                                 "date": today}
+                        continue
                     lead = intros.get(article, "")
                     why = usable(lead, album["artist"], need=0, album=album["album"])
                     if not why and article not in filled:
@@ -304,7 +314,11 @@ def main(argv=None):
                     looked["checked"] = int(time.time())
                 tracks_mb = ((records.get(k) or {}).get("mb") or {}).get("tracks") or {}
                 for i, (_, _, title) in enumerate(album["tracks"]):
-                    if (seen["songs"].get(str(i)) or {}).get("text") or str(i) in looked:
+                    song = seen["songs"].get(str(i))
+                    # Last.fm only where Wikipedia couldn't be: songs Wikidata knows with no
+                    # usable article, and every track on albums Wikidata doesn't have
+                    wanted = (song is not None and not song.get("text")) if q else True
+                    if not wanted or str(i) in looked:
                         continue
                     text, why = lastfm_track(album["artist"], title, album["album"], session, lastfm_key,
                                              (tracks_mb.get(str(i)) or {}).get("recording"))
@@ -321,7 +335,8 @@ def main(argv=None):
                 if i != "checked" and song.get("text") and not (seen["songs"].get(i) or {}).get("text"):
                     pages.append((i, song["text"], None, "introduction", song.get("date"), "lastfm"))
             for i, song in sorted(seen.get("songs", {}).items(), key=lambda kv: int(kv[0])):
-                if not song.get("text") and not ((seen.get("lastfm") or {}).get(i) or {}).get("text"):
+                if song.get("article") and not song.get("text") and \
+                        not ((seen.get("lastfm") or {}).get(i) or {}).get("text"):
                     rejected.append(f"{k}: \"{album['tracks'][int(i)][2]}\" ({song['article']}): {song.get('why')}")
             for i, text, article, part, date, source in sorted(pages, key=lambda p: int(p[0])):
                 title = album["tracks"][int(i)][2]

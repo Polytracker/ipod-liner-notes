@@ -49,17 +49,20 @@ class Songs(unittest.TestCase):
                 return {"query": {"search": [{"title": "Q11"}, {"title": "Q10"}]}}
             return {"entities": {"Q10": {"sitelinks": {"enwiki": {"title": "Karma Police"}},
                                          "labels": {"en": {"value": "Karma Police"}}},
-                                 "Q11": {"sitelinks": {}}}}
+                                 "Q11": {"sitelinks": {}, "labels": {"en": {"value": "Airbag"}}},
+                                 "Q12": {"sitelinks": {}}}}
         s = FakeSession(answer)
         items = tn.album_songs("Q1", s)
         self.assertEqual(items, ["Q10", "Q11"])
-        self.assertEqual(tn.english_titles(items, s), {"Q10": ("Karma Police", "Karma Police")})
+        self.assertEqual(tn.english_titles(items, s), {"Q10": ("Karma Police", "Karma Police"),
+                                                      "Q11": ("", "Airbag")})
 
     def test_match_by_title_and_disambiguation(self):
         tracks = [[1, 1, "Airbag"], [1, 6, "Karma Police"], [1, 11, "Lucky"]]
         songs = {"Q10": ("Karma Police", "Karma Police"), "Q12": ("Lucky (Radiohead song)", "Lucky"),
                  "Q13": ("Creep (Radiohead song)", "Creep")}
-        self.assertEqual(tn.match_tracks(tracks, songs), {1: "Karma Police", 2: "Lucky (Radiohead song)"})
+        songs["Q14"] = ("", "Airbag")
+        self.assertEqual(tn.match_tracks(tracks, songs), {0: "", 1: "Karma Police", 2: "Lucky (Radiohead song)"})
 
 
 class Checks(unittest.TestCase):

@@ -508,6 +508,36 @@ def how_many(rows):
     part = lambda n, w: f"{n} {w}{'' if n == 1 else 's'}"
     return ", ".join(x for x in (part(a, "album") if a else "", part(t, "track") if t else "") if x)
 
+def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM"):
+    """A two-line list (one person's Other Appearances): each entry the album
+    or track on the first line in the list font, the role under it, small
+    and grey; 46 px rows, so four show at once, the selected one marked by
+    the thin line down its left the height of both lines."""
+    W = LAYOUT["width"]
+    img = bg.copy()
+    base = img.getpixel((W // 2, 120))
+    bar = tuple(int(c * 0.55) for c in base)
+    img.paste(bar, (0, 0, W, 35))
+    fg = (255, 255, 255)
+    dim = mix(base, fg, LAYOUT["dim"])
+    head, body, small = fonts["head"], fonts["body"], fonts["small"]
+    head.draw(img, 10, 8, title, fg)
+    body.draw(img, W - 10 - body.text_width(clock), 8, clock, fg)
+    y = 42
+    for n, (main, extra, role) in enumerate(rows[:4]):
+        if n == sel:
+            img.paste((230, 230, 230), (10, y + 4, 13, y + 41))
+        x = body.draw(img, 20, y + 3, main, fg)
+        if extra:
+            body.draw(img, x, y + 3, f", {extra}", dim)
+        small.draw(img, 20, y + 3 + body.height + 2, role, dim)
+        y += 48
+    return img
+
+def person_rows(rows):
+    """(main, grey after it, role) for one person's Other Appearances."""
+    return [(f"\u201c{t}\u201d" if k == "T" else alb, art, role) for k, art, alb, t, role in rows]
+
 def appearances(fonts, bg, text):
     """The people list and the first person's own list, side by side."""
     people = read_links(text)
@@ -515,8 +545,7 @@ def appearances(fonts, bg, text):
         return None
     first = list_screen(fonts, bg, "Other Appearances", [(n, how_many(rows)) for n, _, rows in people])
     name, _, rows = people[0]
-    second = list_screen(fonts, bg, name, [(f"\u201c{t}\u201d" if k == "T" else alb, art)
-                                         for k, art, alb, t, _ in rows])
+    second = list_screen2(fonts, bg, name, person_rows(rows))
     W, H = LAYOUT["width"], LAYOUT["height"]
     both = Image.new("RGB", (W * 2 + 10, H), (255, 255, 255))
     both.paste(first, (0, 0))

@@ -17,7 +17,9 @@ credits for only some of your tracks say which ("Drums (2, 5-7)").
 
 At the end of each file is a hidden "#links" section for the page's Other
 Appearances list (Select on the Credits page): the people credited here who
-are also on other artists' albums in your library. People are matched by
+are also on other albums in your library. A band's own members aren't
+listed for the band's other albums (that would be every one of them), but
+anyone else is: a band's producer leads to the other albums they produced. People are matched by
 their MusicBrainz or Discogs ID, never by name. Someone credited on one site
 and on another album through the other site is joined only when MusicBrainz
 links the two.
@@ -345,12 +347,20 @@ def confirm_same(mb, dc_ids, same):
             links_to[d].update(mbids)
     return links_to
 
-def link_rows(person_root, this_key, this_artist, appear, lib):
-    """The hidden #links rows for one person: their other artists' albums
-    (and tracks, when they're only on a few) in your library."""
+def link_rows(person_root, this_key, this_artist, appear, lib, insiders=None):
+    """The hidden #links rows for one person: their other albums in your
+    library (and tracks, when they're only on a few). The same artist's
+    other albums count only for people who aren't the artist or one of its
+    members (a band's producer, not the band), and come after other
+    artists' albums."""
+    insiders = insiders or {}
     rows = []
-    for k2 in sorted(appear[person_root], key=lambda k: (fold(lib[k]["artist"]), fold(lib[k]["album"]))):
-        if k2 == this_key or fold(lib[k2]["artist"]) == this_artist:
+    def order(k):
+        return (fold(lib[k]["artist"]) == this_artist, fold(lib[k]["artist"]), fold(lib[k]["album"]))
+    for k2 in sorted(appear[person_root], key=order):
+        if k2 == this_key:
+            continue
+        if fold(lib[k2]["artist"]) == this_artist and person_root in insiders.get(k2, ()):
             continue
         a2 = lib[k2]
         how = appear[person_root][k2]               # {(role, tracks or None)}
@@ -557,6 +567,17 @@ def main(argv=None):
                 for k in release_artist_of.get(b, ()):
                     appear[r][k].add((f"Member of {lib[k]['artist']}", None))
 
+    # -- who is "inside" each album: its artist and the artist's members,
+    #    whose own band's other albums aren't listed for them
+    insiders = defaultdict(set)
+    for pid, ks in release_artist_of.items():
+        for k in ks:
+            insiders[k].add(same.find(pid))
+    for person, bands in member_of.items():
+        for b in bands:
+            for k in release_artist_of.get(b, ()):
+                insiders[k].add(same.find(person))
+
     # -- write the pages
     out_dir = ipod / "Artwork" / "Credits"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -583,7 +604,7 @@ def main(argv=None):
                 if pid[0] == "tag" or root in done:
                     continue
                 done.add(root)
-                rows = link_rows(root, k, this_artist, appear, lib)
+                rows = link_rows(root, k, this_artist, appear, lib, insiders)
                 if rows:
                     links.append((pname, ", ".join(r.split(" (")[0] for r in roles[:3]), rows))
         editions = {"MusicBrainz": ids.mb_edition(mbrel[k]) if mbrel.get(k) else "",

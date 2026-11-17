@@ -154,8 +154,21 @@ class Links(unittest.TestCase):
         appear = {"ann": {"Band - One": {("Drums", None)}, "Band - Two": {("Drums", None)},
                           "Other - Three": {("Drums", frozenset({1}))},
                           "Else - Four": {("Producer", None)}}}
-        rows = cr.link_rows("ann", "Band - One", cr.fold("Band"), appear, lib)
+        rows = cr.link_rows("ann", "Band - One", cr.fold("Band"), appear, lib,
+                            {"Band - One": {"ann"}, "Band - Two": {"ann"}})
         self.assertEqual(rows, ["A\tElse\tFour\tProducer", "T\tOther\tThree\tSong 2\tDrums"])
+
+    def test_same_artist_only_for_outsiders(self):
+        lib = {"Band - One": lib_album("Band", "One", 5), "Band - Two": lib_album("Band", "Two", 5),
+               "Solo - Three": lib_album("Solo", "Three", 5)}
+        appear = {"member": {"Band - One": {("Guitar", None)}, "Band - Two": {("Guitar", None)},
+                             "Solo - Three": {("Album artist", None)}},
+                  "producer": {"Band - One": {("Producer", None)}, "Band - Two": {("Producer", None)}}}
+        insiders = {"Band - One": {"member"}, "Band - Two": {"member"}}
+        self.assertEqual(cr.link_rows("member", "Band - One", cr.fold("Band"), appear, lib, insiders),
+                         ["A\tSolo\tThree\tAlbum artist"])
+        self.assertEqual(cr.link_rows("producer", "Band - One", cr.fold("Band"), appear, lib, insiders),
+                         ["A\tBand\tTwo\tProducer"])
 
     def test_page_switch(self):
         d = Path(tempfile.mkdtemp())

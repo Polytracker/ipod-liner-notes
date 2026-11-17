@@ -54,15 +54,17 @@ class Songs(unittest.TestCase):
         s = FakeSession(answer)
         items = tn.album_songs("Q1", s)
         self.assertEqual(items, ["Q10", "Q11"])
-        self.assertEqual(tn.english_titles(items, s), {"Q10": ("Karma Police", "Karma Police"),
-                                                      "Q11": ("", "Airbag")})
+        got = tn.song_items(items, s)
+        self.assertEqual(sorted(got), ["Q10", "Q11"])
+        self.assertEqual((tn.enwiki(got["Q10"]), tn.label(got["Q11"])), ("Karma Police", "Airbag"))
 
     def test_match_by_title_and_disambiguation(self):
         tracks = [[1, 1, "Airbag"], [1, 6, "Karma Police"], [1, 11, "Lucky"]]
-        songs = {"Q10": ("Karma Police", "Karma Police"), "Q12": ("Lucky (Radiohead song)", "Lucky"),
-                 "Q13": ("Creep (Radiohead song)", "Creep")}
-        songs["Q14"] = ("", "Airbag")
-        self.assertEqual(tn.match_tracks(tracks, songs), {0: "", 1: "Karma Police", 2: "Lucky (Radiohead song)"})
+        ent = lambda title, lab: {"sitelinks": {"enwiki": {"title": title}} if title else {},
+                                  "labels": {"en": {"value": lab}}}
+        songs = {"Q10": ent("Karma Police", "Karma Police"), "Q12": ent("Lucky (Radiohead song)", "Lucky"),
+                 "Q13": ent("Creep (Radiohead song)", "Creep"), "Q14": ent("", "Airbag")}
+        self.assertEqual(tn.match_tracks(tracks, songs), {0: "Q14", 1: "Q10", 2: "Q12"})
 
 
 class Checks(unittest.TestCase):
@@ -82,13 +84,12 @@ class Checks(unittest.TestCase):
         self.assertIn("cover", tn.usable(cover + " Radiohead covered it.", "Radiohead"))
 
     def test_page_text(self):
-        t = tn.page_text("Karma Police", "6", "OK Computer", INTRO, "Karma Police", "2026-11-17")
-        lines = t.splitlines()
+        paras = tn.english_paras(INTRO, "introduction", "Karma Police", "2026-11-17")
+        lines = tn.page_text("Karma Police", "6", "OK Computer", paras).splitlines()
         self.assertEqual(lines[:2], ["#title\tKarma Police", "#facts\tTrack 6, OK Computer"])
         self.assertTrue(lines[3].startswith("Karma Police is a song"))
         self.assertEqual(lines[-1], "#sources\tFrom the introduction to the Wikipedia article "
                                     "\"Karma Police\", CC BY-SA 4.0, retrieved 17 Nov 2026")
-
 
 class FillOut(unittest.TestCase):
     def test_short_lead_gets_background_paragraph(self):
@@ -137,5 +138,46 @@ class LastFm(unittest.TestCase):
         self.assertEqual(tn.lastfm_track("Radiohead", "Airbag", "OK Computer", s, "key")[0], "")
 
     def test_credit(self):
-        t = tn.page_text("Airbag", "1", "OK Computer", "x" * 10, None, "2026-11-17", source="lastfm")
+        import translate as tr
+        t = tn.page_text("Airbag", "1", "OK Computer", ["x" * 10, tr.credit("lastfm", date="2026-11-17")])
         self.assertEqual(t.splitlines()[-1], "#sources\tFrom Last.fm, CC BY-SA, retrieved 17 Nov 2026")
+
+
+class Ladder(unittest.TestCase):
+    """The same order as the Album pages: English Wikipedia, translated
+    Wikipedia, Last.fm, translated Last.fm."""
+    album = {"artist": "Radiohead", "album": "OK Computer", "tracks": [[1, 1, "Airbag"]]}
+
+    def setUp(self):
+        tn.time.sleep = lambda s: None
+        self.saved = (tn.fill_out, tn.lastfm_track, tn.foreign_notes)
+        tn.fill_out = lambda lead, article, session: (lead, "introduction")
+
+    def tearDown(self):
+        tn.fill_out, tn.lastfm_track, tn.foreign_notes = self.saved
+
+    def ctx(self, **kw):
+        return {"translator": None, "lastfm": None, "lang": None, "tracks_mb": {}, **kw}
+
+    def test_english_first(self):
+        song = {"sitelinks": {"enwiki": {"title": "Airbag (song)"}}}
+        paras, source, why = tn.track_notes(0, self.album, song, {"Airbag (song)": INTRO.replace("Karma Police", "Airbag")},
+                                            None, self.ctx(lastfm="key"))
+        self.assertEqual(source, "wikipedia")
+
+    def test_lastfm_when_wikipedia_has_nothing(self):
+        song = {"sitelinks": {"enwiki": {"title": "Airbag (song)"}}}
+        tn.lastfm_track = lambda *a, **k: ("Airbag is the opening track on Radiohead's OK Computer. " + "x" * 300, "")
+        paras, source, why = tn.track_notes(0, self.album, song, {}, None, self.ctx(lastfm="key"))
+        self.assertEqual(source, "last.fm")
+        self.assertTrue(paras[-1].startswith("# From Last.fm"))
+
+    def test_translated_wikipedia_before_lastfm(self):
+        song = {"sitelinks": {"frwiki": {"title": "Airbag (chanson)"}}}
+        called = []
+        tn.foreign_notes = lambda found, lang, session, translator: (
+            ["Airbag is a song by Radiohead on OK Computer. " + "y" * 300, "# Machine-translated"], "wikipedia (fr, translated)")
+        tn.lastfm_track = lambda *a, **k: called.append(1) or ("", "no Last.fm write-up")
+        paras, source, why = tn.track_notes(0, self.album, song, {}, None, self.ctx(translator=object(), lastfm="key"))
+        self.assertEqual(source, "wikipedia (fr, translated)")
+        self.assertEqual(called, [])

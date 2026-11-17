@@ -48,6 +48,7 @@ LAYOUT = {
     "hang": 0,                    # indent for a person's row that wraps (Joe chose none)
     "row_gap": 4,                 # extra pixels between people, so each row's start shows
     "role_tint": 190,             # roles a softer white than names: the background blended this far (of 255) toward the text colour
+    "scrim": 100,                 # brightest the blurred cover gets behind the text (luma 0-255), as Scrim's scrim does
     "dim": 170,                   # grey text: the background blended 170/255 toward the text colour
     "pages": ("Bio", "Album", "Track", "Credits"),
 }
@@ -179,7 +180,18 @@ def background(cover_bytes, height):
     with Image.open(io.BytesIO(cover_bytes)) as im:
         art = im.convert("RGB").resize((W, W), Image.LANCZOS)
     art = art.filter(ImageFilter.GaussianBlur(12))
-    art = Image.blend(art, Image.new("RGB", art.size, (0, 0, 0)), 0.45)
+    # Scrim's "scrim:ffffff" brings highlights down until white text reads:
+    # on Kid A's white cover the simulator shows a mid grey behind the text.
+    # Here every pixel brighter than LAYOUT["scrim"] (luma) is scaled down to it.
+    cap = LAYOUT["scrim"]
+    px = art.load()
+    for yy in range(art.height):
+        for xx in range(art.width):
+            r, g, b = px[xx, yy]
+            luma = 0.299 * r + 0.587 * g + 0.114 * b
+            if luma > cap:
+                k = cap / luma
+                px[xx, yy] = (int(r * k), int(g * k), int(b * k))
     art = art.crop((0, 40, W, 40 + LAYOUT["height"]))             # placed at y = -40, as Scrim does
     bg = Image.new("RGB", (W, height))
     for y in range(0, height, LAYOUT["height"]):                 # the background stays put as text scrolls;

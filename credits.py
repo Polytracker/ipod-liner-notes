@@ -10,7 +10,9 @@ The page lists who played, produced, engineered and wrote the album, in five
 groups: Musicians, Producers, Engineers, Songwriters and Credited (everyone
 else). Each group comes whole from one source, never mixed: your files' own
 credit tags if they have any for that group, otherwise whichever of
-MusicBrainz and Discogs credits more people in it. The page names the
+MusicBrainz and Discogs covers more of your album in it (each person and
+role counts for the share of your tracks it's on, so a band credited
+throughout outweighs guests on a single track). The page names the
 edition its credits are for, and how its tracks compare with yours, so you
 know what you're reading. Credits for tracks you don't have are left out;
 credits for only some of your tracks say which ("Drums (2, 5-7)").
@@ -231,22 +233,38 @@ def tag_credits(album):
 
 
 # ---------------------------------------------------------------- choosing and laying out
-def choose(sources):
+def coverage(creds, n_tracks):
+    """How much of your album a source's credits cover: each different
+    person+role counts for the share of your tracks it's on (1 for the whole
+    album), so a band credited throughout outweighs guests on one track."""
+    spans = {}
+    for c in creds:
+        key = (c[0], c[3])
+        if c[5] is None or spans.get(key, set()) is None:
+            spans[key] = None
+        else:
+            spans[key] = spans.get(key, set()) | c[5]
+    if not n_tracks:
+        return float(len(spans))
+    return sum(1.0 if t is None else min(1.0, len(t) / n_tracks) for t in spans.values())
+
+def choose(sources, n_tracks=0, weighted=True):
     """{group: (source name, credits)}: your tags for a group if they have
-    any, else the site crediting more different person+role pairs in it."""
+    any, else the site whose credits in it cover more of your album
+    (weighted=False: the site with more different person+role pairs)."""
     out = {}
     for group in ids.GROUPS:
         best = None
         for name, creds in sources:
             mine = [c for c in creds if c[4] == group]
-            n = len({(c[0], c[3]) for c in mine})
-            if not n:
+            if not mine:
                 continue
             if name == "tags":                       # the files' own say comes first
-                best = (name, mine, 10 ** 6)
+                best = (name, mine, float("inf"))
                 break
-            if best is None or n > best[2]:
-                best = (name, mine, n)
+            score = coverage(mine, n_tracks) if weighted else float(len({(c[0], c[3]) for c in mine}))
+            if best is None or score > best[2] + 1e-9:
+                best = (name, mine, score)
         if best:
             out[group] = best[:2]
     return out
@@ -474,6 +492,8 @@ def main(argv=None):
                     help='just this artist, or "Artist - Album" (can be given more than once)')
     ap.add_argument("--discogs-token", default=conf.get("discogs token"),
                     help="Discogs personal token, only needed if a saved release has expired")
+    ap.add_argument("--compare", action="store_true",
+                    help="list the groups whose source changes under the weighted rule, and write nothing")
     args = ap.parse_args(argv)
 
     music = Path(args.music_root)
@@ -507,14 +527,32 @@ def main(argv=None):
     print()
 
     # -- each album's page credits
-    chosen = {}
+    chosen, changes = {}, []
     for k in keys:
         sources = [("tags", tag_credits(lib[k]))]
         if mbrel.get(k):
             sources.append(("MusicBrainz", mb_credits(mbrel[k], records[k].get("mb") or {})))
         if dcrel.get(k):
             sources.append(("Discogs", dc_credits(dcrel[k], records[k].get("discogs") or {})))
-        chosen[k] = choose(sources)
+        chosen[k] = choose(sources, len(lib[k]["tracks"]))
+        if args.compare:
+            before = choose(sources, len(lib[k]["tracks"]), weighted=False)
+            for g in ids.GROUPS:
+                if g in before and before[g][0] != chosen[k][g][0]:
+                    changes.append((k, g, before[g][0], chosen[k][g][0],
+                                    coverage(before[g][1], len(lib[k]["tracks"])),
+                                    coverage(chosen[k][g][1], len(lib[k]["tracks"]))))
+
+    if args.compare:
+        lines = [f"Groups whose source changes when credits are weighted by how much of the album they cover: "
+                 f"{len(changes)}, on {len({c[0] for c in changes})} albums.", ""]
+        for k, g, a, b, ca, cb in changes:
+            lines.append(f"{k}: {g} {a} -> {b}  (album covered {ca:.1f} -> {cb:.1f})")
+        report = HERE / "Credits source changes.txt"
+        report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print("\n".join(lines[:40]))
+        print(f"\nAll of them in {report}. Nothing was written to the pages.")
+        return 0
 
     # -- who's who: release artists, library bands' members, and the same
     #    person on both sites (confirmed through MusicBrainz's Discogs links)

@@ -100,6 +100,15 @@ class Layout(unittest.TestCase):
         self.assertEqual(got["Songwriters"][0], "tags")
         self.assertEqual(got["Musicians"][0], "Discogs")
 
+    def test_whole_album_beats_one_track_guests(self):
+        mb = [(("mb", "b"), "Band", "Band", "Guitar", "Musicians", {0})] + \
+             [(("mb", f"h{i}"), f"H{i}", f"H{i}", "Horn", "Musicians", {2}) for i in range(6)]
+        dc = [(("dc", 1), "Band", "Band", "Guitar", "Musicians", None),
+              (("dc", 2), "Drum", "Drum", "Drums", "Musicians", None)]
+        sources = [("MusicBrainz", mb), ("Discogs", dc)]
+        self.assertEqual(cr.choose(sources, 10)["Musicians"][0], "Discogs")
+        self.assertEqual(cr.choose(sources, 10, weighted=False)["Musicians"][0], "MusicBrainz")
+
     def test_rows_and_ranges(self):
         album = lib_album("Band", "Album", 8)
         creds = [(("dc", 1), "Ann", "Ann", "Drums", "Musicians", {0, 1, 2, 4}),

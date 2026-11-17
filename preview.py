@@ -552,7 +552,15 @@ def cut(font, text, width):
         text = text[:-1]
     return text.rstrip(" ,") + "\u2026"
 
-def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, top=0, icons=None):
+def icon_mask(font, ch, size):
+    """A glyph of the 24 px icon font scaled to `size` px, as an alpha mask:
+    a small icon font of our own would hold these two glyphs ready-scaled."""
+    im = Image.new("RGB", (24, 24), (0, 0, 0))
+    font.draw(im, 0, 0, ch, (255, 255, 255))
+    m = im.convert("L")
+    return m if size == 24 else m.resize((size, size), Image.LANCZOS)
+
+def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, top=0, icons=None, icon_size=24):
     """The viewer's own two-line list, laid out like Scrim's 48 px art rows
     (list viewport from (10, 41), four rows, the bar 3 x 48). The selected
     row is white on both lines, as Scrim's selected row is; the others are
@@ -563,13 +571,15 @@ def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, t
     img = list_area(bg)
     chrome(img, fonts, title, clock)
     body, small = fonts["body"], fonts["small"]
-    ix = 46 if icons else 12
+    # Scrim's icon rows: icon at x = 2, bar 10 px after it, text 10 px after the bar
+    ix = (2 + icon_size + 10 + 10) if icons else 12
     y = 41
     for n, (main, extra, second) in enumerate(rows[top:top + 4], top):
         on = n == sel
         ink = (255, 255, 255) if on else GREY
         if icons and fonts.get("icons"):
-            fonts["icons"].draw(img, 12, y + 12, icons[n], ink)
+            m = icon_mask(fonts["icons"], icons[n], icon_size)
+            img.paste(ink, (12, y + (48 - icon_size) // 2, 12 + icon_size, y + (48 + icon_size) // 2), m)
         if on:
             bar(img, 10 + ix - 10, y, 48, accent or (255, 255, 255))
         x = clipped(img, body, 10 + ix, y + 6, main, ink)

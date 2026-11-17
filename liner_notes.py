@@ -316,21 +316,27 @@ def rg_item(rg, session, info):
     return item_result(best, session, info) if best else None
 
 def wiki_summaries(titles, session):
-    """{title asked for: introduction} for up to 20 English articles in one request."""
-    r = ab.wiki_get(session, WIKI_API.format("en"), {
-        "action": "query", "prop": "extracts", "exintro": 1, "explaintext": 1, "exlimit": 20,
-        "redirects": 1, "titles": "|".join(titles[:20]), "format": "json", "formatversion": 2})
-    if not r.ok:
-        return {}
-    q = r.json().get("query") or {}
-    back = {}
-    for k in ("normalized", "redirects"):
-        for m in q.get(k) or []:
-            back[m["to"]] = back.get(m["from"], m["from"])
-    out = {}
-    for p in q.get("pages") or []:
-        if p.get("extract"):
-            out[back.get(p["title"], p["title"])] = p["extract"].strip()
+    """{title asked for: introduction} for up to 20 English articles. Wikipedia
+    sends a long batch in parts ("continue"), so this asks until it has them all."""
+    params = {"action": "query", "prop": "extracts", "exintro": 1, "explaintext": 1, "exlimit": 20,
+              "redirects": 1, "titles": "|".join(titles[:20]), "format": "json", "formatversion": 2}
+    out, more = {}, {}
+    for _ in range(20):
+        r = ab.wiki_get(session, WIKI_API.format("en"), {**params, **more})
+        if not r.ok:
+            break
+        data = r.json()
+        q = data.get("query") or {}
+        back = {}
+        for k in ("normalized", "redirects"):
+            for m in q.get(k) or []:
+                back[m["to"]] = back.get(m["from"], m["from"])
+        for p in q.get("pages") or []:
+            if p.get("extract"):
+                out[back.get(p["title"], p["title"])] = p["extract"].strip()
+        more = data.get("continue") or {}
+        if not more:
+            break
     return out
 
 def guess_title(info, session):

@@ -58,7 +58,7 @@ WIKIDATA = "https://www.wikidata.org/w/api.php"
 WIKIPEDIA = "https://en.wikipedia.org/w/api.php"
 RECHECK_DAYS = 180
 MIN_CHARS = 300
-VERSION = 2           # albums looked up by an older version are looked up again
+VERSION = 3           # albums looked up by an older version are looked up again
 # sections a short lead is filled out from, in order of preference; never lists or tables
 BODY_SECTIONS = (r"background", r"writing|composition|recording|production", r"music|lyrics|theme",
                  r"history|release", r"^(?!.*(track|personnel|chart|certif|reference|note|cover|"
@@ -141,7 +141,10 @@ def fill_out(lead, article, session):
                     return lead.rstrip() + "\n" + paras[0], "excerpts"
     return lead, "introduction"
 
-def usable(intro, artist, need=MIN_CHARS):
+ENSEMBLE = re.compile(r"\s+(trio|quartet|quintet|sextet|band|orchestra|group|ensemble|experience|"
+                      r"and his orchestra|& his orchestra)$", re.I)
+
+def usable(intro, artist, need=MIN_CHARS, album=""):
     """Why an introduction can't be used, or "" if it can."""
     if not intro:
         return "no introduction"
@@ -150,9 +153,15 @@ def usable(intro, artist, need=MIN_CHARS):
     if re.search(r"\bmay (also )?refer to\b", intro[:300]):
         return "a list of other meanings"
     names = [fold(a) for a in re.split(r"\s*(?:,|&| and | feat\.? | with )\s*", artist) if a.strip()]
+    names += [fold(ENSEMBLE.sub("", artist))]                  # "Vince Guaraldi Trio" -> "Vince Guaraldi"
     lead = fold(opening(intro))
-    if not any(n and n in lead for n in names + [fold(artist)]):
-        return "doesn't name the artist first (perhaps the original of a cover)"
+    named = any(n and n in lead for n in names + [fold(artist)])
+    # or it names the album (a song "by Madvillain" on Madvillainy, filed under MF DOOM):
+    # the song came from the album's own Wikidata item, and the article about the
+    # original of a cover doesn't open by naming the cover's album
+    on_album = album and fold(ids.plain_album(album)) in lead
+    if not (named or on_album):
+        return "doesn't name the artist or album first (perhaps the original of a cover)"
     return ""
 
 
@@ -233,11 +242,11 @@ def main(argv=None):
                 filled = {}
                 for i, article in sorted(found.items()):
                     lead = intros.get(article, "")
-                    why = usable(lead, album["artist"], need=0)
+                    why = usable(lead, album["artist"], need=0, album=album["album"])
                     if not why and article not in filled:
                         filled[article] = fill_out(lead, article, session)
                     text, part = filled.get(article, (lead, "introduction"))
-                    why = why or usable(text, album["artist"])
+                    why = why or usable(text, album["artist"], album=album["album"])
                     seen["songs"][str(i)] = {"article": article, "text": "" if why else text, "part": part,
                                              "why": why, "date": today}
                 ab.save_json(path, seen)

@@ -69,6 +69,11 @@ class Checks(unittest.TestCase):
         dre = ('"Still D.R.E." is a song by American rapper and record producer Dr. Dre, featuring Snoop Dogg. '
                + "x" * 300)
         self.assertEqual(tn.usable(dre, "Dr. Dre"), "")
+        linus = '"Linus and Lucy" is a jazz piece composed by Vince Guaraldi. ' + "x" * 300
+        self.assertEqual(tn.usable(linus, "Vince Guaraldi Trio"), "")
+        money = '"Money Folder" is a song by American hip hop duo Madvillain, from their album Madvillainy. ' + "x" * 300
+        self.assertEqual(tn.usable(money, "MF DOOM", album="Madvillainy"), "")
+        self.assertIn("cover", tn.usable(money, "MF DOOM", album="Operation: Doomsday"))
         self.assertIn("other meanings", tn.usable("Lucky may refer to: " + "x" * 400, "Radiohead"))
         cover = INTRO.replace("the English rock band Radiohead", "the American singer Someone Else")
         self.assertIn("cover", tn.usable(cover + " Radiohead covered it.", "Radiohead"))
@@ -94,3 +99,16 @@ class FillOut(unittest.TestCase):
         self.assertIn("Walpurgis", text)
         self.assertNotIn("Side one", text)
         self.assertEqual(tn.fill_out("x" * 400, "A", None), ("x" * 400, "introduction"))
+
+
+class Continue(unittest.TestCase):
+    def test_summaries_follow_continue(self):
+        import liner_notes as ln
+        ab.time.sleep = lambda s: None
+        def answer(url, p):
+            if "excontinue" not in p:
+                return {"query": {"pages": [{"title": "A", "extract": "a" * 50}, {"title": "B"}]},
+                        "continue": {"excontinue": 1, "continue": "||"}}
+            return {"query": {"pages": [{"title": "A"}, {"title": "B", "extract": "b" * 50}]}}
+        got = ln.wiki_summaries(["A", "B"], FakeSession(answer))
+        self.assertEqual(sorted(got), ["A", "B"])

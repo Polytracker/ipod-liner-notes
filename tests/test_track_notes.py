@@ -1,0 +1,79 @@
+"""
+Offline checks for track_notes.py: finding an album's songs on Wikidata,
+matching them to your tracks, and which introductions are used.
+
+  python -m unittest discover tests
+"""
+import os, sys, tempfile, unittest
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+os.environ.setdefault("XDG_CONFIG_HOME", tempfile.mkdtemp())
+
+import artist_bios as ab  # noqa: E402
+import track_notes as tn  # noqa: E402
+
+
+class Reply:
+    def __init__(self, data):
+        self.data, self.ok, self.status_code, self.headers = data, True, 200, {}
+    def json(self):
+        return self.data
+
+
+class FakeSession:
+    def __init__(self, answer):
+        self.answer, self.asked = answer, []
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.asked.append(params)
+        return Reply(self.answer(url, params or {}))
+
+
+INTRO = ("Karma Police is a song by the English rock band Radiohead, released as the second single from "
+         "their third album, OK Computer (1997). It was written by the band members and produced by Nigel "
+         "Godrich. The song features a piano and guitar arrangement and was accompanied by a music video "
+         "directed by Jonathan Glazer, in which a man is pursued by a car. It reached number eight.")
+
+
+class Songs(unittest.TestCase):
+    def setUp(self):
+        ab.time.sleep = lambda s: None
+
+    def test_tracklist_and_part_of(self):
+        def answer(url, p):
+            if p.get("action") == "wbgetentities" and p.get("props") == "claims":
+                return {"entities": {"Q1": {"claims": {"P658": [
+                    {"mainsnak": {"datavalue": {"value": {"id": "Q10"}}}}]}}}}
+            if p.get("list") == "search":
+                return {"query": {"search": [{"title": "Q11"}, {"title": "Q10"}]}}
+            return {"entities": {"Q10": {"sitelinks": {"enwiki": {"title": "Karma Police"}},
+                                         "labels": {"en": {"value": "Karma Police"}}},
+                                 "Q11": {"sitelinks": {}}}}
+        s = FakeSession(answer)
+        items = tn.album_songs("Q1", s)
+        self.assertEqual(items, ["Q10", "Q11"])
+        self.assertEqual(tn.english_titles(items, s), {"Q10": ("Karma Police", "Karma Police")})
+
+    def test_match_by_title_and_disambiguation(self):
+        tracks = [[1, 1, "Airbag"], [1, 6, "Karma Police"], [1, 11, "Lucky"]]
+        songs = {"Q10": ("Karma Police", "Karma Police"), "Q12": ("Lucky (Radiohead song)", "Lucky"),
+                 "Q13": ("Creep (Radiohead song)", "Creep")}
+        self.assertEqual(tn.match_tracks(tracks, songs), {1: "Karma Police", 2: "Lucky (Radiohead song)"})
+
+
+class Checks(unittest.TestCase):
+    def test_usable(self):
+        self.assertEqual(tn.usable(INTRO, "Radiohead"), "")
+        self.assertEqual(tn.usable("Short.", "Radiohead"), "too short")
+        self.assertIn("other meanings", tn.usable("Lucky may refer to: " + "x" * 400, "Radiohead"))
+        cover = INTRO.replace("the English rock band Radiohead", "the American singer Someone Else")
+        self.assertIn("cover", tn.usable(cover + " Radiohead covered it.", "Radiohead"))
+
+    def test_page_text(self):
+        t = tn.page_text("Karma Police", "6", "OK Computer", INTRO, "Karma Police", "2026-11-17")
+        lines = t.splitlines()
+        self.assertEqual(lines[:2], ["#title\tKarma Police", "#facts\tTrack 6 · OK Computer"])
+        self.assertTrue(lines[3].startswith("Karma Police is a song"))
+        self.assertEqual(lines[-1], "#sources\tFrom the introduction to the Wikipedia article "
+                                    "\"Karma Police\", CC BY-SA 4.0, retrieved 17 Nov 2026")

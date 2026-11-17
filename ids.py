@@ -314,7 +314,7 @@ class Site:
         self.remaining = None
 
     def get(self, url, params=None):
-        for attempt in range(4):
+        for attempt in range(6):
             with self.lock:
                 wait = self.last + self.gap - time.time()
                 if self.remaining is not None and self.remaining <= 2:
@@ -339,7 +339,10 @@ class Site:
                     pause = float(r.headers.get("Retry-After") or 0)
                 except ValueError:
                     pause = 0
-                time.sleep(pause or (10 if r.status_code == 429 else 3) * (attempt + 1))
+                # a busy server needs longer than its Retry-After of a second
+                # or so: 2, 4, 8, 16, 32 s, about a minute in all
+                time.sleep(max(pause, 10 * (attempt + 1) if r.status_code == 429
+                                      else 2 ** (attempt + 1)))
                 continue
             if r.status_code != 200:
                 return None

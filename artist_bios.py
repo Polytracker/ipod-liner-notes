@@ -477,7 +477,9 @@ def mb_get(session, url, params=None):
         if r.status_code not in (503, 429):
             break
         _mb_pace[0] = min(4.0, _mb_pace[0] + 0.8)       # stay slower from now on
-        pause = int(r.headers.get("Retry-After", "0") or 0) or 2 ** (attempt + 1)
+        # a busy server needs longer than its Retry-After of a second or so:
+        # 2, 4, 8, 16, 32 s, about a minute in all before giving up
+        pause = max(int(r.headers.get("Retry-After", "0") or 0), 2 ** (attempt + 1))
         pause += random.uniform(0, 1)                   # jitter, so retries don't line up
         why = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r.text or ""))[:90].strip()
         print(f"     musicbrainz busy, waiting {pause:.0f} s" + (f" ({why})" if why else ""))

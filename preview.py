@@ -475,29 +475,127 @@ def read_links(text):
                 people[-1][2].append(("T", f[1], f[2], f[3], f[4] if len(f) > 4 else ""))
     return people
 
-def list_screen(fonts, bg, title, rows, clock="12:17 AM"):
-    """A Scrim list: the 35 px title bar, then 30 px rows from y = 46, the
-    selected (first) row marked by a thin line at its left. A row is
-    (main text, grey text after it)."""
+# Scrim's own colours (scrim.sbs): the top bar is white at opacity 12/15
+# behind black bold text; the list area takes the dominant colour at 3/15;
+# the selected row's text is white, the others "vivid>85:bdbdbd" (light grey
+# unless the album has a very vivid colour); the selection bar is the vivid
+# colour (white unless vivid > 60), 3 px wide, rounded.
+GREY = (0xBD, 0xBD, 0xBD)
+
+def vivid(img, need=0.6):
+    """The most vivid colour of the picture, or None when nothing is vivid enough."""
+    import colorsys
+    small = img.convert("RGB").resize((24, 24))
+    best, score = None, 0
+    for c in small.getdata():
+        h, sat, v = colorsys.rgb_to_hsv(*(x / 255 for x in c))
+        if sat * v > score:
+            best, score = c, sat * v
+    return best if score > need else None
+
+def chrome(img, fonts, title, clock="12:17 AM"):
+    """Scrim's top bar: 35 px, white at 12/15 over the background, the title
+    in 18 bold black at (10, 8), the time right-aligned ending at x = 280."""
     W = LAYOUT["width"]
-    img = bg.copy()
-    base = img.getpixel((W // 2, 120))
-    bar = tuple(int(c * 0.55) for c in base)
-    img.paste(bar, (0, 0, W, 35))
-    fg = (255, 255, 255)
-    dim = mix(base, fg, LAYOUT["dim"])
+    top = img.crop((0, 0, W, 35))
+    img.paste(Image.blend(top, Image.new("RGB", top.size, (255, 255, 255)), 12 / 15), (0, 0))
     head, body = fonts["head"], fonts["body"]
-    head.draw(img, 10, 8, title, fg)
-    body.draw(img, W - 10 - body.text_width(clock), 8, clock, fg)
+    head.draw(img, 10, 8, title, (0, 0, 0))
+    body.draw(img, 280 - body.text_width(clock), 8, clock, (0, 0, 0))
+    # the battery icon sits at x = 289; not drawn here
+
+def list_area(bg):
+    """The blurred background with the dominant colour at 3/15 below the bar."""
+    W, H = LAYOUT["width"], LAYOUT["height"]
+    img = bg.crop((0, 0, W, H)).copy()
+    dom = img.resize((1, 1), Image.LANCZOS).getpixel((0, 0))
+    low = img.crop((0, 35, W, H))
+    img.paste(Image.blend(low, Image.new("RGB", low.size, dom), 3 / 15), (0, 35))
+    return img
+
+def clipped(img, font, x, y, text, colour, right=310):
+    """Text cut at the list viewport's right edge (x = 310), as a viewport
+    clips it; returns where the text ends (possibly past the edge)."""
+    strip = img.crop((0, y, right, y + font.height))
+    end = font.draw(strip, x, 0, text, colour)
+    img.paste(strip, (0, y))
+    return end
+
+def bar(img, x, y, h, colour):
+    """The selection bar: 3 px wide, rounded at the ends."""
+    img.paste(colour, (x, y + 1, x + 3, y + h - 1))
+    img.paste(colour, (x + 1, y, x + 2, y + h))
+
+def list_screen(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None):
+    """A Scrim list with bare rows: 30 px rows in the list viewport from
+    (10, 46); the text at x = 12 in it, the bar at x = 2. A row is
+    (main text, grey text after it)."""
+    img = list_area(bg)
+    chrome(img, fonts, title, clock)
+    body = fonts["body"]
     y = 46
     for n, (main, extra) in enumerate(rows[:6]):
-        x = 20
-        if n == 0:
-            img.paste((230, 230, 230), (10, y + 4, 13, y + 26))
-        ty = y + (30 - body.height) // 2
-        x = body.draw(img, x, ty, main, fg)
+        on = n == sel
+        if on:
+            bar(img, 12, y, 30, accent or (255, 255, 255))
+        x = clipped(img, body, 22, y + 5, main, (255, 255, 255) if on else GREY)
         if extra:
-            body.draw(img, x, ty, f", {extra}", dim)
+            clipped(img, body, x, y + 5, f", {extra}", GREY)
+        y += 30
+    return img
+
+def cut(font, text, width):
+    """The second line doesn't scroll: too long, it ends in "…"."""
+    if font.text_width(text) <= width:
+        return text
+    while text and font.text_width(text + "\u2026") > width:
+        text = text[:-1]
+    return text.rstrip(" ,") + "\u2026"
+
+def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, top=0):
+    """The viewer's own two-line list, laid out like Scrim's 48 px art rows
+    (list viewport from (10, 41), four rows, the bar 3 x 48): the first line
+    in the list font, white when selected and grey otherwise, then a grey
+    remainder after a comma; the second line in the 14-pt font, grey. Only
+    the selected row's first line scrolls on the iPod."""
+    img = list_area(bg)
+    chrome(img, fonts, title, clock)
+    body, small = fonts["body"], fonts["small"]
+    y = 41
+    for n, (main, extra, second) in enumerate(rows[top:top + 4], top):
+        on = n == sel
+        if on:
+            bar(img, 12, y, 48, accent or (255, 255, 255))
+        x = clipped(img, body, 22, y + 6, main, (255, 255, 255) if on else GREY)
+        if extra:
+            clipped(img, body, x, y + 6, f", {extra}", GREY)
+        clipped(img, small, 22, y + 6 + body.height + 3, cut(small, second, 288), GREY)
+        y += 48
+    return img
+
+def album_screen(fonts, bg, cover, artist, album, info, tracks, sel=0, clock="12:17 AM", accent=None):
+    """PodBox's own album screen with Scrim's album header: the title bar
+    says Album; a panel (white at 3/15, radius 6) at (5, 40, 310, 70) with
+    the cover, the name in bold, the artist and "year · N tracks · length" in
+    grey; then the tracks, numbered, 30 px rows from y = 114."""
+    img = list_area(bg)
+    chrome(img, fonts, "Album", clock)
+    panel = img.crop((5, 40, 315, 110))
+    img.paste(Image.blend(panel, Image.new("RGB", panel.size, (255, 255, 255)), 3 / 15), (5, 40))
+    with Image.open(io.BytesIO(cover)) as im:
+        img.paste(im.convert("RGB").resize((44, 44), Image.LANCZOS), (18, 53))
+    head, body = fonts["head"], fonts["body"]
+    head.draw(img, 74, 46, album, (255, 255, 255))
+    body.draw(img, 74, 66, artist, GREY)
+    body.draw(img, 74, 86, info, GREY)
+    y = 114
+    for n, t in enumerate(tracks[:4]):
+        on = n == sel
+        num = str(n + 1)
+        body.draw(img, 10 + 15 - body.text_width(num) // 2, y + 5, num, (255, 255, 255) if on else GREY)
+        if on:
+            bar(img, 46, y, 30, accent or (255, 255, 255))
+        body.draw(img, 56, y + 5, t, (255, 255, 255) if on else GREY)
         y += 30
     return img
 
@@ -508,44 +606,30 @@ def how_many(rows):
     part = lambda n, w: f"{n} {w}{'' if n == 1 else 's'}"
     return ", ".join(x for x in (part(a, "album") if a else "", part(t, "track") if t else "") if x)
 
-def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM"):
-    """A two-line list (one person's Other Appearances): each entry the album
-    or track on the first line in the list font, the role under it, small
-    and grey; 46 px rows, so four show at once, the selected one marked by
-    the thin line down its left the height of both lines."""
-    W = LAYOUT["width"]
-    img = bg.copy()
-    base = img.getpixel((W // 2, 120))
-    bar = tuple(int(c * 0.55) for c in base)
-    img.paste(bar, (0, 0, W, 35))
-    fg = (255, 255, 255)
-    dim = mix(base, fg, LAYOUT["dim"])
-    head, body, small = fonts["head"], fonts["body"], fonts["small"]
-    head.draw(img, 10, 8, title, fg)
-    body.draw(img, W - 10 - body.text_width(clock), 8, clock, fg)
-    y = 42
-    for n, (main, extra, role) in enumerate(rows[:4]):
-        if n == sel:
-            img.paste((230, 230, 230), (10, y + 4, 13, y + 41))
-        x = body.draw(img, 20, y + 3, main, fg)
-        if extra:
-            body.draw(img, x, y + 3, f", {extra}", dim)
-        small.draw(img, 20, y + 3 + body.height + 2, role, dim)
-        y += 48
-    return img
-
 def person_rows(rows):
-    """(main, grey after it, role) for one person's Other Appearances."""
-    return [(f"\u201c{t}\u201d" if k == "T" else alb, art, role) for k, art, alb, t, role in rows]
+    """(first line, grey after it, second line) for one person's own list:
+    albums and tracks together, by artist and then album, so a track sits
+    with the others from its album. A track's second line names its album."""
+    out = []
+    for k, art, alb, t, role in sorted(rows, key=lambda r: (r[1].lower(), r[2].lower(), r[3].lower())):
+        if k == "T":
+            out.append((f"\u201c{t}\u201d", art, f"{role}, on {alb}" if role else f"On {alb}"))
+        else:
+            out.append((alb, art, role))
+    return out
 
-def appearances(fonts, bg, text):
+def people_rows(people):
+    """(name, "2 albums, 3 tracks", their role on this album) for the people list."""
+    return [(n, how_many(rows), roles) for n, roles, rows in people]
+
+def appearances(fonts, bg, text, accent=None):
     """The people list and the first person's own list, side by side."""
     people = read_links(text)
     if not people:
         return None
-    first = list_screen(fonts, bg, "Other Appearances", [(n, how_many(rows)) for n, _, rows in people])
+    first = list_screen2(fonts, bg, "Other Appearances", people_rows(people), accent=accent)
     name, _, rows = people[0]
-    second = list_screen2(fonts, bg, name, person_rows(rows))
+    second = list_screen2(fonts, bg, name, person_rows(rows), accent=accent)
     W, H = LAYOUT["width"], LAYOUT["height"]
     both = Image.new("RGB", (W * 2 + 10, H), (255, 255, 255))
     both.paste(first, (0, 0))

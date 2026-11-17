@@ -132,7 +132,7 @@ class Translator:
             for (k, _), t in zip(todo, r.json().get("translations") or []):
                 self.cache[k] = t.get("text", "")
             self.save()
-        out = [self.cache.get(k, "") for k in keys]
+        out = [plain(self.cache.get(k, "")) for k in keys]
         return out if all(out) else None
 
     def save(self):
@@ -142,6 +142,11 @@ class Translator:
 
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+def plain(text):
+    """DeepL sometimes marks titles in italics with asterisks ("*OK Computer*");
+    the iPod would show the asterisks, so they go (also from saved translations)."""
+    return re.sub(r"(?<![\w*])\*{1,2}([^*\n]+?)\*{1,2}(?![\w*])", r"\1", text)
 
 def retrieved(date=None):
     """", retrieved 14 Nov 2026" for a YYYY-MM-DD date (default today), or "" for none."""

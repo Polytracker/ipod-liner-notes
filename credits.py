@@ -91,6 +91,17 @@ def page_on(ipod, setting=PAGE_SETTING):
 
 
 # ---------------------------------------------------------------- roles
+# MusicBrainz names some jobs by the work alone: "recording" on its own
+# reads like the recording itself, so these get the name of the job.
+MB_NAMES = {"recording": "recording engineer", "audio": "audio engineer",
+            "sound": "sound engineer", "balance": "balance engineer",
+            "mix": "mixing", "programming": "programming"}
+
+# Discogs says "Recorded By"; the page uses the same words as MusicBrainz,
+# so the two sources read alike on one page.
+DC_NAMES = {"recorded by": "Recording engineer", "mixed by": "Mixing",
+            "mastered by": "Mastering"}
+
 def mb_role(r):
     """ "Guitar", "Lead vocals", "Executive producer", "Mix" from a MusicBrainz relationship."""
     t = (r.get("type") or "").lower()
@@ -103,7 +114,7 @@ def mb_role(r):
     elif t in ("performer", "performing orchestra"):
         role = ", ".join(attrs) or "performer"
     else:
-        role = " ".join(attrs + [t])                    # "executive producer", "co producer"
+        role = " ".join(attrs + [MB_NAMES.get(t, t)])   # "executive producer", "assistant recording engineer"
     role = role.replace("co producer", "co-producer")
     if "solo" in extra:
         role += " solo"
@@ -114,9 +125,22 @@ def mb_role(r):
 
 def dc_role(role):
     """Discogs writes "Guitar [Electric]" and "Recorded By"; the page says
-    "Guitar (Electric)" and "Recorded by". What's in brackets keeps its
+    "Guitar (Electric)" and "Recording engineer". What's in brackets keeps its
     capitals ("Synthesizer (Moog)")."""
     base = re.sub(r"\s*\[.*", "", role.strip()).lower()
+    if base in DC_NAMES:
+        # "Mixed By [Assistant Mix Engineer]" → "Assistant mixing engineer"
+        inner = re.findall(r"\[([^\]]*)\]", role)
+        name = DC_NAMES[base]
+        rest = inner[0].strip() if inner else ""
+        if rest.lower().startswith("assistant"):
+            name = "Assistant " + name[:1].lower() + name[1:]
+            if not name.endswith("engineer"):
+                name += " engineer"                       # "Assistant mixing engineer"
+            rest = rest[len("assistant"):].strip()
+        if rest and not re.search(r"engineer|" + base.split()[0][:4], rest, re.I):
+            name += f" ({rest})"                          # "Recording engineer (Additional Strings)"
+        return cap(name)
 
     def bracket(m):
         # a note that only says the role again goes: "Engineer [Engineered By]",

@@ -35,6 +35,17 @@ def mb_person(aid, name, typ, attrs=(), credit=None):
 
 
 class Roles(unittest.TestCase):
+    def test_engineer_names(self):
+        self.assertEqual(cr.mb_role({"type": "recording", "attributes": []}), "Recording engineer")
+        self.assertEqual(cr.mb_role({"type": "recording", "attributes": ["assistant"]}),
+                         "Assistant recording engineer")
+        self.assertEqual(cr.mb_role({"type": "mix", "attributes": []}), "Mixing")
+        self.assertEqual(cr.dc_role("Recorded By"), "Recording engineer")
+        self.assertEqual(cr.dc_role("Mixed By [Assistant Mix Engineer]"), "Assistant mixing engineer")
+        self.assertEqual(cr.dc_role("Recorded By [Additional Strings]"),
+                         "Recording engineer (Additional Strings)")
+        self.assertEqual(cr.dc_role("Mastered By"), "Mastering")
+
     def test_mb_roles(self):
         self.assertEqual(cr.mb_role({"type": "instrument", "attributes": ["bass guitar"]}), "Bass guitar")
         self.assertEqual(cr.mb_role({"type": "vocal", "attributes": []}), "Vocals")
@@ -44,7 +55,7 @@ class Roles(unittest.TestCase):
     def test_dc_role(self):
         self.assertEqual(cr.dc_role("Guitar [Electric]"), "Guitar (Electric)")
         self.assertEqual(cr.dc_role("Synthesizer [Moog]"), "Synthesizer (Moog)")
-        self.assertEqual(cr.dc_role("Mixed By"), "Mixed by")
+        self.assertEqual(cr.dc_role("Mixed By"), "Mixing")
         self.assertEqual(cr.dc_role("Written-By"), "Written-by")
         self.assertEqual(cr.dc_role("Engineer [Engineered By]"), "Engineer")
         self.assertEqual(cr.dc_role("Backing Vocals [Background Vocals]"), "Backing Vocals")
@@ -84,7 +95,7 @@ class FromSources(unittest.TestCase):
             by[c[1]].append((c[3], c[5]))
         self.assertEqual(by["Ann"], [("Bass", {0, 1})])          # the "(2)" is dropped
         self.assertNotIn("Bob", by)                              # only on a track you don't have
-        self.assertEqual(by["Cat"], [("Producer", None), ("Mixed by", None)])
+        self.assertEqual(by["Cat"], [("Producer", None), ("Mixing", None)])
 
     def test_track_list(self):
         order = ["A1", "A2", "A3", "B1", "B2"]

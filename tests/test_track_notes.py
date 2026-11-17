@@ -181,3 +181,22 @@ class Ladder(unittest.TestCase):
         paras, source, why = tn.track_notes(0, self.album, song, {}, None, self.ctx(translator=object(), lastfm="key"))
         self.assertEqual(source, "wikipedia (fr, translated)")
         self.assertEqual(called, [])
+
+
+class Plain(unittest.TestCase):
+    def test_asterisks_go(self):
+        import translate
+        self.assertEqual(translate.plain("the album *OK Computer*, out in 1997"),
+                         "the album OK Computer, out in 1997")
+        self.assertEqual(translate.plain("2*3 and a*b*c"), "2*3 and a*b*c")
+
+
+class TranslatedCredit(unittest.TestCase):
+    def test_always_says_machine_translated(self):
+        import translate
+        for src in ("wikipedia", "lastfm"):
+            for part in ("introduction", "excerpts"):
+                line = translate.credit(src, lang="fr", part=part)
+                self.assertIn("Machine-translated", line, (src, part))
+        self.assertNotIn("Machine-translated", translate.credit("wikipedia", lang="en"))
+        self.assertNotIn("Machine-translated", translate.credit("lastfm"))

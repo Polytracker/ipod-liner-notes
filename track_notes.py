@@ -222,7 +222,7 @@ def lastfm_track(artist, title, album, session, key, mbid=None, lang=None):
 def page_text(title, place, album, paras):
     """The Track file: "#title", a "#facts" line, the paragraphs, and
     "#sources" from the credit line ("# From …") the ladder ends them with."""
-    body = [p for p in paras if p and not p.startswith("# ")]
+    body = [tr.plain(p) for p in paras if p and not p.startswith("# ")]
     credit = next((p[2:] for p in paras if p.startswith("# ")), "")
     lines = [f"#title\t{title}", f"#facts\tTrack {place}, {album}", ""] + body
     if credit:

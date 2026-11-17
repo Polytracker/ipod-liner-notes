@@ -371,28 +371,46 @@ def status_line(n):
         return "1 person appears elsewhere in your library"
     return f"{n} people appear elsewhere in your library"
 
-def page_text(key, album, rec, chosen, links):
-    """The Credits file. Lines starting "#" are for the viewer, not shown as
-    they are; "## Group<TAB>source" starts a group; a person is
-    "Name<TAB>Role, Role (2, 5)"."""
+def sources_line(chosen):
+    """ "Musicians and engineers from Discogs, producers from MusicBrainz",
+    or "Credits from Discogs" when one source gave everything."""
+    names = {"tags": "your files' tags", "MusicBrainz": "MusicBrainz", "Discogs": "Discogs"}
+    by_src = defaultdict(list)
+    for group in ids.GROUPS:
+        if group in chosen:
+            by_src[chosen[group][0]].append(group.lower())
+    if len(by_src) == 1:
+        return f"Credits from {names[next(iter(by_src))]}"
+    parts = []
+    for src, groups in by_src.items():
+        listed = groups[0] if len(groups) == 1 else ", ".join(groups[:-1]) + " and " + groups[-1]
+        parts.append(f"{listed} from {names[src]}")
+    return cap(", ".join(parts))
+
+def page_text(key, album, rec, chosen, links, editions=None):
+    """The Credits file. Lines starting "#" are drawn by the viewer in its
+    own styles, not as written: "#facts" and "#status" as small grey lines
+    under the title, "## Group" as a bold heading, "#sources" as the small
+    grey line at the end; "#links" starts the hidden Other Appearances list.
+    A person is "Name<TAB>Role, Role (2, 5)"."""
     lines = []
-    used = {src for src, _ in chosen.values()}
-    for src, field in (("MusicBrainz", "mb"), ("Discogs", "discogs")):
-        if src in used:
-            found = rec.get(field) or {}
-            note = ids.tracks_note({"tracks": album["tracks"]}, found)
-            lines.append(f"#edition\t{found.get('edition') or found.get('title') or ''}\t{src}\t{note}")
-    if "tags" in used:
-        lines.append("#edition\tYour files' tags\ttags\t")
+    used = [src for src in ("MusicBrainz", "Discogs") if src in {s for s, _ in chosen.values()}]
+    for src in used:
+        found = rec.get("mb" if src == "MusicBrainz" else "discogs") or {}
+        edition = (editions or {}).get(src) or found.get("edition") or found.get("title") or ""
+        note = ids.tracks_note({"tracks": album["tracks"]}, found)
+        lead = "Credits for" if len(used) == 1 else f"{src} credits for"
+        lines.append("#facts\t" + " · ".join(x for x in (f"{lead} {edition}", note) if x))
     lines.append(f"#status\t{status_line(len(links))}")
     for group in ids.GROUPS:
         if group not in chosen:
             continue
-        src, creds = chosen[group]
         lines.append("")
-        lines.append(f"## {group}\t{'your tags' if src == 'tags' else src}")
-        for _, name, roles in people_rows(creds, album):
+        lines.append(f"## {group}")
+        for _, name, roles in people_rows(chosen[group][1], album):
             lines.append(f"{name}\t{', '.join(roles)}")
+    lines.append("")
+    lines.append(f"#sources\t{sources_line(chosen)}")
     if links:
         lines.append("")
         lines.append("#links")
@@ -541,7 +559,9 @@ def main(argv=None):
                 rows = link_rows(root, k, this_artist, appear, lib)
                 if rows:
                     links.append((pname, ", ".join(r.split(" (")[0] for r in roles[:3]), rows))
-        text = page_text(k, lib[k], records[k], chosen[k], links)
+        editions = {"MusicBrainz": ids.mb_edition(mbrel[k]) if mbrel.get(k) else "",
+                    "Discogs": ids.discogs_edition(dcrel[k]) if dcrel.get(k) else ""}
+        text = page_text(k, lib[k], records[k], chosen[k], links, editions)
         mp = CACHE / f"{name}.json"
         meta = ab.load_json(mp) or {"key": k}
         res = ab.write_if_ours(out_dir / f"{name}.txt", text.encode("utf-8"), meta, "txt_sha1")

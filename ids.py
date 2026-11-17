@@ -591,7 +591,7 @@ def mb_shape(rel):
 
 def mb_edition(rel):
     """What the pages say their information is for, e.g.
-    "Down in Albion (deluxe edition), 2005, 2×CD, GB"."""
+    "Down in Albion (deluxe edition) · 2005 · 2×CD · GB"."""
     title = rel.get("title") or ""
     if rel.get("disambiguation"):
         title += f" ({rel['disambiguation']})"
@@ -600,7 +600,7 @@ def mb_edition(rel):
         f = m.get("format") or "?"
         formats[f] = formats.get(f, 0) + 1
     fmt = " + ".join(f"{n}×{f}" if n > 1 else f for f, n in formats.items())
-    return ", ".join(x for x in (title, (rel.get("date") or "")[:4], fmt, rel.get("country") or "") if x)
+    return " · ".join(x for x in (title, (rel.get("date") or "")[:4], fmt, rel.get("country") or "") if x)
 
 class MusicBrainz:
     STRONG = {"musicbrainz id", "discogs id", "barcode", "store link", "disc id", "catalogue number"}
@@ -824,14 +824,14 @@ def mmss(s):
     return int(m.group(1) or 0) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
 
 def discogs_edition(rel):
-    """e.g. "Down In Albion, 2005, 2×CD (Album, Deluxe Edition), UK"."""
+    """e.g. "Down In Albion · 2005 · 2×CD (Album, Deluxe Edition) · UK"."""
     fmts = []
     for f in rel.get("formats") or []:
         qty = f.get("qty") or "1"
         name = (f"{qty}×" if qty not in ("", "1") else "") + (f.get("name") or "")
         desc = [d for d in f.get("descriptions") or [] if d]
         fmts.append(name + (f" ({', '.join(desc)})" if desc else ""))
-    return ", ".join(x for x in (rel.get("title") or "", str(rel.get("year") or "") if rel.get("year") else "",
+    return " · ".join(x for x in (rel.get("title") or "", str(rel.get("year") or "") if rel.get("year") else "",
                                  " + ".join(fmts), rel.get("country") or "") if x)
 
 def discogs_tracks(rel):

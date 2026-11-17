@@ -112,16 +112,21 @@ class Layout(unittest.TestCase):
 
     def test_page_text(self):
         album = lib_album("Band", "Album", 3)
-        rec = {"discogs": {"edition": "Album, 1999, CD, UK", "how": "subset", "release_tracks": 5}}
+        rec = {"discogs": {"edition": "Album · 1999 · CD · UK", "how": "subset", "release_tracks": 5}}
         chosen = {"Musicians": ("Discogs", [(("dc", 1), "Ann", "Ann", "Drums", "Musicians", None)])}
         text = cr.page_text("Band - Album", album, rec, chosen,
                             [("Ann", "Drums", ["A\tOther\tRecord\tDrums"])])
         lines = text.splitlines()
-        self.assertEqual(lines[0], "#edition\tAlbum, 1999, CD, UK\tDiscogs\tyour 3 of its 5 tracks")
+        self.assertEqual(lines[0], "#facts\tCredits for Album · 1999 · CD · UK · your 3 of its 5 tracks")
         self.assertEqual(lines[1], "#status\t1 person appears elsewhere in your library")
-        self.assertIn("## Musicians\tDiscogs", lines)
+        self.assertIn("## Musicians", lines)
         self.assertIn("Ann\tDrums", lines)
+        self.assertIn("#sources\tCredits from Discogs", lines)
         self.assertEqual(lines[-3:], ["#links", "P\tAnn\tDrums", "A\tOther\tRecord\tDrums"])
+
+    def test_sources_line(self):
+        c = {"Musicians": ("Discogs", []), "Engineers": ("Discogs", []), "Producers": ("MusicBrainz", [])}
+        self.assertEqual(cr.sources_line(c), "Musicians and engineers from Discogs, producers from MusicBrainz")
 
     def test_status_wording(self):
         self.assertEqual(cr.status_line(0), "No one here appears elsewhere in your library")

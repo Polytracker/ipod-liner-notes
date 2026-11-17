@@ -117,9 +117,13 @@ def dc_role(role):
     capitals ("Synthesizer (Moog)")."""
     base = re.sub(r"\s*\[.*", "", role.strip()).lower()
 
-    def bracket(m):                           # "Engineer [Engineered By]" says it twice
+    def bracket(m):
+        # a note that only says the role again goes: "Engineer [Engineered By]",
+        # "Backing Vocals [Background Vocals]", "Bass [Live Bass]"
         inner = m.group(1).strip()
-        return "" if base and inner.lower().startswith(base[:5]) else f" ({inner})"
+        same_start = base and inner.lower().startswith(base[:5])
+        same_end = base and inner.lower().split()[-1:] == base.split()[-1:]
+        return "" if same_start or same_end else f" ({inner})"
     role = re.sub(r"\s*\[([^\]]*)\]", bracket, role.strip())
     role = re.sub(r"(?<=[\s-])By\b", "by", role)
     return cap(role)
@@ -300,12 +304,17 @@ def people_rows(creds, album):
         roles[pid][role] = None if tracks is None or have is None else have | tracks
     rows = []
     for pid in order:
-        texts = []
+        # roles on the same tracks share one set of numbers:
+        # "Alto Saxophone, Flute (1, 7)", not "Alto Saxophone (1, 7), Flute (1, 7)"
+        spans = {}
         for role, tracks in roles[pid].items():
-            if tracks is None or tracks >= every:
-                texts.append(role)
-            else:
-                texts.append(f"{role} ({track_ranges(tracks, label)})")
+            span = "" if tracks is None or tracks >= every else track_ranges(tracks, label)
+            spans.setdefault(span, []).append(role)
+        texts = []
+        for span, rs in spans.items():
+            if span:
+                rs = rs[:-1] + [f"{rs[-1]} ({span})"]
+            texts += rs
         rows.append((pid, names[pid], texts))
     return rows
 

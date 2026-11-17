@@ -208,6 +208,12 @@ class Links(unittest.TestCase):
         self.assertEqual(cr.link_rows("producer", "Band - One", cr.fold("Band"), appear, lib, insiders),
                          ["A\tBand\tTwo\tProducer"])
 
+    def test_capped(self):
+        lib = {f"A{i} - B{i}": lib_album(f"A{i}", f"B{i}", 5) for i in range(cr.LINK_ROWS + 10)}
+        appear = {"eng": {k: {("Mastering", None)} for k in lib}}
+        rows = cr.link_rows("eng", "A0 - B0", cr.fold("A0"), appear, lib)
+        self.assertEqual(len(rows), cr.LINK_ROWS)
+
     def test_page_switch(self):
         import tempfile, artist_bios as ab
         with tempfile.TemporaryDirectory() as d:

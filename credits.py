@@ -56,6 +56,7 @@ except ModuleNotFoundError as e:
     sys.exit(1)
 
 CACHE = ab.CACHE.parent / "credits"
+LINK_ROWS = 40                               # an Other Appearances list, at most
 VARIOUS_DC = {194, 355}                      # Discogs "Various", "Unknown Artist"
 MEMBER_TYPES = {"member of band", "is person", "collaboration", "subgroup"}
 
@@ -423,7 +424,7 @@ def link_rows(person_root, this_key, this_artist, appear, lib, insiders=None):
                 rows.append(f"T\t{a2['artist']}\t{a2['album']}\t{a2['tracks'][i][2]}\t{', '.join(these[:3])}")
         else:
             rows.append(f"A\t{a2['artist']}\t{a2['album']}\t{role}")
-    return rows
+    return rows[:LINK_ROWS]
 
 
 # ---------------------------------------------------------------- the page

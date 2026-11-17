@@ -198,6 +198,41 @@ def background(cover_bytes, height):
         bg.paste(art, (0, y))                                    # tiling stands in for that on a tall picture
     return bg
 
+def backdrop(image_bytes):
+    """The viewer's Blurred Art, as artist_bio.c makes it: the banner (or
+    cover) stretched over the whole screen, blurred and scrimmed, with the
+    same again upside down below it. 320 x 480; the page scrolls over the
+    pair repeated, so it moves with the text and never meets an edge."""
+    W, H = LAYOUT["width"], LAYOUT["height"]
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        art = im.convert("RGB").resize((W, H), Image.LANCZOS)
+    art = art.filter(ImageFilter.GaussianBlur(12))
+    cap = LAYOUT["scrim"]
+    px = art.load()
+    for yy in range(H):
+        for xx in range(W):
+            r, g, b = px[xx, yy]
+            luma = 0.299 * r + 0.587 * g + 0.114 * b
+            if luma > cap:
+                k = cap / luma
+                px[xx, yy] = (int(r * k), int(g * k), int(b * k))
+    pair = Image.new("RGB", (W, 2 * H))
+    pair.paste(art, (0, 0))
+    pair.paste(art.transpose(Image.FLIP_TOP_BOTTOM), (0, H))
+    return pair
+
+def backdrop_at(pair, top, height):
+    """Rows top .. top+height of the repeated backdrop (top may be negative)."""
+    W, P = pair.width, pair.height
+    out = Image.new("RGB", (W, height))
+    y = 0
+    while y < height:
+        row = (top + y) % P
+        take = min(height - y, P - row)
+        out.paste(pair.crop((0, row, W, row + take)), (0, y))
+        y += take
+    return out
+
 def mix(a, b, n):
     return tuple(round(x + (y - x) * n / 255) for x, y in zip(a, b))
 
@@ -358,17 +393,24 @@ def screen(fonts, title, page, cover, scroll=0, current="Credits", banner=None):
     else:
         items, _ = layout(fonts, title, page)
     W, H, S = LAYOUT["width"], LAYOUT["height"], LAYOUT["strip"]
-    img = background(cover, H)
+    art = banner or cover
+    pair = backdrop(art) if art else None
+    # the backdrop moves with the page: page row y sits over backdrop row y
+    img = backdrop_at(pair, scroll - S, H) if pair else background(None, H)
     base = img.getpixel((W // 2, H // 2))
     fg = (255, 255, 255)
     dim, role = mix(base, fg, LAYOUT["dim"]), mix(base, fg, LAYOUT["role_tint"])
     text = Image.new("RGBA", (W, H - S), (0, 0, 0, 0))
     if banner is not None and current in ("Bio", "Album"):
-        # the banner scrolls with the page, under the strip; its foot darkened for the name
+        # the banner scrolls with the page; its bottom 64 rows fade into the
+        # backdrop rows under them (ab_fade in artist_bio.c), the name over the fade
         with Image.open(io.BytesIO(banner)) as b:
             band = b.convert("RGB").resize((W, 160))
-        shade = Image.linear_gradient("L").resize((W, 160)).point(lambda v: max(0, v - 120) * 255 // 135)
-        band.paste((0, 0, 0), (0, 0), shade.point(lambda v: v * 0.7))
+        under = backdrop_at(pair, 0, 160)
+        fade = Image.new("L", (W, 160), 0)
+        for y in range(160 - 64, 160):
+            fade.paste((y - (160 - 64) + 1) * 255 // 64, (0, y, W, y + 1))
+        band = Image.composite(under, band, fade)
         img.paste(band, (0, S - scroll))
     for font, t, x, y, look in items:
         if -40 < y - scroll < H:

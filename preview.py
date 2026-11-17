@@ -560,7 +560,8 @@ def icon_mask(font, ch, size):
     m = im.convert("L")
     return m if size == 24 else m.resize((size, size), Image.LANCZOS)
 
-def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, top=0, icons=None, icon_size=24):
+def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, top=0, icons=None, icon_size=24,
+                 quote="indent"):
     """The viewer's own two-line list, laid out like Scrim's 48 px art rows
     (list viewport from (10, 41), four rows, the bar 3 x 48). The selected
     row is white on both lines, as Scrim's selected row is; the others are
@@ -582,10 +583,15 @@ def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, t
             img.paste(ink, (12, y + (48 - icon_size) // 2, 12 + icon_size, y + (48 + icon_size) // 2), m)
         if on:
             bar(img, 10 + ix - 10, y, 48, accent or (255, 255, 255))
-        x = clipped(img, body, 10 + ix, y + 6, main, ink)
+        # A track's opening quote: "hang" puts it in the margin, so every row's
+        # first letter and second line line up; "indent" moves the second line
+        # in to the letter after it; "none" leaves both at the quote.
+        q = body.text_width("\u201c") if main.startswith("\u201c") else 0
+        x = clipped(img, body, 10 + ix - (q if quote == "hang" else 0), y + 6, main, ink)
         if extra:
             clipped(img, body, x, y + 6, f", {extra}", ink)
-        clipped(img, small, 10 + ix, y + 6 + body.height + 3, cut(small, second, 298 - ix), ink)
+        x2 = 10 + ix + (q if quote == "indent" else 0)
+        clipped(img, small, x2, y + 6 + body.height + 3, cut(small, second, 298 - (x2 - 10)), ink)
         y += 48
     return img
 

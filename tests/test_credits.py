@@ -118,14 +118,16 @@ class Layout(unittest.TestCase):
                  (("dc", 1), "Ann", "Ann", "Vocals", "Musicians", None),
                  (("dc", 2), "Bob", "Bobby", "Bass", "Musicians", set(range(8)))]
         rows = cr.people_rows(creds, album)
-        self.assertEqual(rows[0][1:], ("Ann", ["Drums (1–3, 5)", "Vocals"]))
+        self.assertEqual(rows[0][1:], ("Ann", ["Drums [1–3, 5]", "Vocals"]))
+        self.assertEqual(cr.roles_text(rows[0][2]), "Drums [1–3, 5] · Vocals")
+        self.assertEqual(cr.roles_text(["Vocals", "Guitar"]), "Vocals, Guitar")
         self.assertEqual(rows[1][1:], ("Bobby", ["Bass"]))          # every track: no numbers
 
     def test_roles_on_same_tracks_share_numbers(self):
         album = lib_album("Band", "Album", 8)
         creds = [(("dc", 1), "Bud", "Bud", r, "Musicians", {0, 6}) for r in ("Alto Saxophone", "Flute")] + \
                 [(("dc", 1), "Bud", "Bud", "Vocals", "Musicians", {2})]
-        self.assertEqual(cr.people_rows(creds, album)[0][2], ["Alto Saxophone", "Flute (1, 7)", "Vocals (3)"])
+        self.assertEqual(cr.people_rows(creds, album)[0][2], ["Alto Saxophone, Flute [1, 7]", "Vocals [3]"])
 
     def test_multi_disc_labels(self):
         album = lib_album("Band", "Album", 4, discs=2)

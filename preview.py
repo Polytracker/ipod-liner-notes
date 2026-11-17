@@ -165,7 +165,7 @@ def read_page(text):
             groups.append((line[3:], []))
         elif line and groups:
             name, _, roles = line.partition("\t")
-            groups[-1][1].append(f"{name} \u2013 {roles}" if roles else name)
+            groups[-1][1].append((name, roles))
     return facts, status, groups, sources, linked
 
 def background(cover_bytes, height):
@@ -205,21 +205,52 @@ def layout(fonts, title, page):
     for group, rows in groups:
         out.append(("head", group, M, y, False))
         y += fonts["head"].height + body_h // 4
-        hang = LAYOUT["hang"]
-        for row in rows:
-            first, *rest = wrap(fonts["body"], row, width)
-            out.append(("body", first, M, y, False))
-            y += body_h
-            if rest:
-                for line in wrap(fonts["body"], " ".join(rest), width - hang):
-                    out.append(("body", line, M + hang, y, False))
-                    y += body_h
+        for name, roles in rows:
+            y = person_row(fonts, out, name, roles, y)
         y += body_h // 2
     if sources:
         for line in wrap(fonts["small"], sources, width):
             out.append(("small", line, M, y, True))
             y += fonts["small"].height
     return out, y + M
+
+def row_units(name, roles):
+    """A person's row as the pieces it may wrap between: words of "Name –
+    Role, Role" in the body font, and each set of track numbers ("[3, 9]"
+    in the file, small and grey) joined to the word before it, so numbers
+    never start a line on their own."""
+    units = [[("body", w)] for w in (f"{name} \u2013" if roles else name).split(" ")]
+    for part in re.split(r"(\[[^\]]*\])", roles):
+        if part.startswith("["):
+            units[-1].append(("small", part[1:-1]))
+        else:
+            units += [[("body", w)] for w in part.split(" ") if w]
+    return units
+
+def person_row(fonts, out, name, roles, y):
+    """Lays out one person's row from y, wrapping between pieces with the
+    carried-on lines indented; returns the y below it."""
+    W, M, hang = LAYOUT["width"], LAYOUT["margin"], LAYOUT["hang"]
+    body = fonts["body"]
+
+    def width(unit):
+        return sum(fonts[f].text_width(t) for f, t in unit) + \
+               sum(fonts[f].text_width(" ") for f, _ in unit[1:])
+
+    x = M
+    for n, unit in enumerate(row_units(name, roles)):
+        gap = 0 if n == 0 else body.text_width(" ")
+        if n and x + gap + width(unit) > W - M:
+            y += body.height
+            x, gap = M + hang, 0
+        x += gap
+        for k, (f, text) in enumerate(unit):
+            font = fonts[f]
+            if k:
+                x += font.text_width(" ")
+            out.append((f, text, x, y + body.ascent - font.ascent, f == "small"))
+            x += font.text_width(text)
+    return y + body.height
 
 def render(fonts, title, page, cover):
     items, h = layout(fonts, title, page)

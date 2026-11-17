@@ -15,7 +15,8 @@ role counts for the share of your tracks it's on, so a band credited
 throughout outweighs guests on a single track). The page names the
 edition its credits are for, and how its tracks compare with yours, so you
 know what you're reading. Credits for tracks you don't have are left out;
-credits for only some of your tracks say which ("Drums (2, 5-7)").
+credits for only some of your tracks say which ("Drums [2, 5-7]", drawn
+on the iPod as small grey numbers).
 
 At the end of each file is a hidden "#links" section for the page's Other
 Appearances list (Select on the Credits page): the people credited here who
@@ -310,13 +311,17 @@ def people_rows(creds, album):
         for role, tracks in roles[pid].items():
             span = "" if tracks is None or tracks >= every else track_ranges(tracks, label)
             spans.setdefault(span, []).append(role)
-        texts = []
-        for span, rs in spans.items():
-            if span:
-                rs = rs[:-1] + [f"{rs[-1]} ({span})"]
-            texts += rs
+        texts = [", ".join(rs) + (f" [{span}]" if span else "") for span, rs in spans.items()]
         rows.append((pid, names[pid], texts))
     return rows
+
+def roles_text(groups):
+    """A person's roles as the page writes them. Track numbers go in square
+    brackets, which the viewer draws small and grey without the brackets;
+    groups on different tracks are kept apart by " · " so a comma never
+    sits between a track number and the next role:
+    "Backing vocals [3, 9] · Performer, Lead vocals [3–5, 7–10]"."""
+    return (" \u00b7 " if any(g.endswith("]") for g in groups) else ", ").join(groups)
 
 
 # ---------------------------------------------------------------- people across the library
@@ -458,7 +463,8 @@ def page_text(key, album, rec, chosen, links, editions=None):
     own styles, not as written: "#facts" and "#status" as small grey lines
     under the title, "## Group" as a bold heading, "#sources" as the small
     grey line at the end; "#links" starts the hidden Other Appearances list.
-    A person is "Name<TAB>Role, Role (2, 5)"."""
+    A person is "Name<TAB>Role, Role [2, 5] · Role": what's in square
+    brackets is track numbers, drawn small and grey."""
     lines = []
     used = [src for src in ("MusicBrainz", "Discogs") if src in {s for s, _ in chosen.values()}]
     for src in used:
@@ -477,7 +483,7 @@ def page_text(key, album, rec, chosen, links, editions=None):
         lines.append("")
         lines.append(f"## {group}")
         for _, name, roles in people_rows(chosen[group][1], album):
-            lines.append(f"{name}\t{', '.join(roles)}")
+            lines.append(f"{name}\t{roles_text(roles)}")
     lines.append("")
     lines.append(f"#sources\t{sources_line(chosen)}")
     if links:
@@ -658,7 +664,8 @@ def main(argv=None):
                 done.add(root)
                 rows = link_rows(root, k, this_artist, appear, lib, insiders)
                 if rows:
-                    links.append((pname, ", ".join(r.split(" (")[0] for r in roles[:3]), rows))
+                    plain = [r for g in roles for r in re.sub(r"\s*\[[^\]]*\]$", "", g).split(", ")]
+                    links.append((pname, ", ".join(list(dict.fromkeys(plain))[:3]), rows))
         editions = {"MusicBrainz": ids.mb_edition(mbrel[k]) if mbrel.get(k) else "",
                     "Discogs": ids.discogs_edition(dcrel[k]) if dcrel.get(k) else ""}
         text = page_text(k, lib[k], records[k], chosen[k], links, editions)

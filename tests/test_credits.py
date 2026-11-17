@@ -79,7 +79,7 @@ class FromSources(unittest.TestCase):
             by[c[1]].append((c[3], c[5]))
         self.assertEqual(by["Ann"], [("Bass", {0, 1})])          # the "(2)" is dropped
         self.assertNotIn("Bob", by)                              # only on a track you don't have
-        self.assertEqual(by["Cat"], [("Producer", None), ("Mixed By", None)])
+        self.assertEqual(by["Cat"], [("Producer", None), ("Mixed by", None)])
 
     def test_track_list(self):
         order = ["A1", "A2", "A3", "B1", "B2"]

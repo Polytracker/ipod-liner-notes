@@ -6,6 +6,7 @@ from its .rockbox\\fonts folder), glyph for glyph, on the album's blurred
 cover, and saves:
 
   credits preview\\<Album Artist> - <Album>.png   the whole page, top to bottom
+  credits preview\\Other Appearances\\...png     its Select list, and the first person's
   credits preview\\Credits preview report.txt      characters the fonts can't
                                                  draw, the longest pages, and
                                                  rows too long for the screen
@@ -240,6 +241,73 @@ def render(fonts, title, page, cover):
     return img, items
 
 
+# ---------------------------------------------------------------- Other Appearances
+def read_links(text):
+    """[(name, roles, [(kind, artist, album, track or "", role)])] from #links."""
+    people, on = [], False
+    for line in text.splitlines():
+        if line == "#links":
+            on = True
+        elif on and line.startswith("P\t"):
+            _, name, roles = (line.split("\t") + [""])[:3]
+            people.append((name, roles, []))
+        elif on and people and line[:2] in ("A\t", "T\t"):
+            f = line.split("\t")
+            if f[0] == "A":
+                people[-1][2].append(("A", f[1], f[2], "", f[3] if len(f) > 3 else ""))
+            else:
+                people[-1][2].append(("T", f[1], f[2], f[3], f[4] if len(f) > 4 else ""))
+    return people
+
+def list_screen(fonts, bg, title, rows, clock="12:17 AM"):
+    """A Scrim list: the 35 px title bar, then 30 px rows from y = 46, the
+    selected (first) row marked by a thin line at its left. A row is
+    (main text, grey text after it)."""
+    W = LAYOUT["width"]
+    img = bg.copy()
+    base = img.getpixel((W // 2, 120))
+    bar = tuple(int(c * 0.55) for c in base)
+    img.paste(bar, (0, 0, W, 35))
+    fg = (255, 255, 255)
+    dim = mix(base, fg, LAYOUT["dim"])
+    head, body = fonts["head"], fonts["body"]
+    head.draw(img, 10, 8, title, fg)
+    body.draw(img, W - 10 - body.text_width(clock), 8, clock, fg)
+    y = 46
+    for n, (main, extra) in enumerate(rows[:6]):
+        x = 20
+        if n == 0:
+            img.paste((230, 230, 230), (10, y + 4, 13, y + 26))
+        ty = y + (30 - body.height) // 2
+        x = body.draw(img, x, ty, main, fg)
+        if extra:
+            body.draw(img, x, ty, f" · {extra}", dim)
+        y += 30
+    return img
+
+def how_many(rows):
+    """ "1 album", "2 tracks", "1 album, 2 tracks": what a person's row says."""
+    a = sum(1 for r in rows if r[0] == "A")
+    t = sum(1 for r in rows if r[0] == "T")
+    part = lambda n, w: f"{n} {w}{'' if n == 1 else 's'}"
+    return ", ".join(x for x in (part(a, "album") if a else "", part(t, "track") if t else "") if x)
+
+def appearances(fonts, bg, text):
+    """The people list and the first person's own list, side by side."""
+    people = read_links(text)
+    if not people:
+        return None
+    first = list_screen(fonts, bg, "Other Appearances", [(n, how_many(rows)) for n, _, rows in people])
+    name, _, rows = people[0]
+    second = list_screen(fonts, bg, name, [(f"\u201c{t}\u201d" if k == "T" else alb, art)
+                                         for k, art, alb, t, _ in rows])
+    W, H = LAYOUT["width"], LAYOUT["height"]
+    both = Image.new("RGB", (W * 2 + 10, H), (255, 255, 255))
+    both.paste(first, (0, 0))
+    both.paste(second, (W + 10, 0))
+    return both
+
+
 # ---------------------------------------------------------------- the run
 def main(argv=None):
     conf = ab.settings()
@@ -284,6 +352,10 @@ def main(argv=None):
                 cover = None
         img, items = render(fonts, title, text, cover)
         img.save(out / f"{path.stem}.png")
+        apps = appearances(fonts, background(cover, LAYOUT["height"]), text)
+        if apps:
+            (out / "Other Appearances").mkdir(exist_ok=True)
+            apps.save(out / "Other Appearances" / f"{path.stem}.png")
         done += 1
         lost = {c for font, t, *_ in items for c in t if not fonts[font].has(c) and not c.isspace()}
         if lost:

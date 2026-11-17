@@ -100,8 +100,11 @@ def mb_role(r):
     else:
         role = " ".join(attrs + [t])                    # "executive producer", "co producer"
     role = role.replace("co producer", "co-producer")
-    if extra:
-        role += f" ({', '.join(extra)})"
+    if "solo" in extra:
+        role += " solo"
+    lead = [a for a in extra if a != "solo"]           # "Additional bass guitar", "Guest piano"
+    if lead:
+        role = " ".join(lead) + " " + role[:1].lower() + role[1:]
     return cap(role)
 
 def dc_role(role):
@@ -390,6 +393,24 @@ def sources_line(chosen):
         parts.append(f"{listed} from {names[src]}")
     return cap(", ".join(parts))
 
+PLACES = {"XW": "Worldwide", "XE": "Europe", "XU": "", "XG": "", "": ""}
+FORMATS = {"Digital Media": "Digital", "File": "Digital"}
+
+def plain_edition(edition, album_title):
+    """ "OK Computer · 2016 · Digital Media · XW" -> "2016 · Digital · Worldwide":
+    the title goes when it's the album's own (it's just above), and
+    MusicBrainz's codes become words."""
+    parts = [p.strip() for p in (edition or "").split(" · ")]
+    if parts and fold(parts[0]) == fold(album_title):
+        parts = parts[1:]
+    out = []
+    for p in parts:
+        p = PLACES.get(p, p)
+        p = re.sub(r"\b(Digital Media|File)\b", lambda m: FORMATS[m.group(1)], p)
+        if p:
+            out.append(p)
+    return " · ".join(out)
+
 def page_text(key, album, rec, chosen, links, editions=None):
     """The Credits file. Lines starting "#" are drawn by the viewer in its
     own styles, not as written: "#facts" and "#status" as small grey lines
@@ -402,9 +423,10 @@ def page_text(key, album, rec, chosen, links, editions=None):
         found = rec.get("mb" if src == "MusicBrainz" else "discogs") or {}
         edition = (editions or {}).get(src) or found.get("edition") or found.get("title") or ""
         note = ids.tracks_note({"tracks": album["tracks"]}, found)
+        edition = plain_edition(edition, album["album"])
         if not edition:
             continue
-        lead = "Credits for" if len(used) == 1 else f"{src} credits for"
+        lead = "Edition:" if len(used) == 1 else f"{src} edition:"
         lines.append("#facts\t" + " · ".join(x for x in (f"{lead} {edition}", note) if x))
     lines.append(f"#status\t{status_line(len(links))}")
     for group in ids.GROUPS:

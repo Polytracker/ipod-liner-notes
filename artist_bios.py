@@ -347,9 +347,18 @@ def strip_markup(text):
     text = re.sub(r"\[[almr]\d+\]", "", text)                       # [a12345] -> (drop)
     return re.sub(r"\s+", " ", text).strip()
 
-def discogs_artist(artist, session, token):
-    """Returns (photo_url, profile) from Discogs, or (None, None)."""
+def discogs_artist(artist, session, token, discogs_id=None):
+    """Returns (photo_url, profile) from Discogs, or (None, None): the artist
+    ids.py matched on your albums when known (one request), else by name."""
     h = dict(UA, Authorization=f"Discogs token={token}")
+    if discogs_id:
+        d = session.get(f"https://api.discogs.com/artists/{discogs_id}", headers=h, timeout=20)
+        time.sleep(1.1)
+        if d.ok:
+            d = d.json()
+            imgs = sorted(d.get("images") or [], key=lambda i: (i.get("type") != "primary",
+                                                                 -(i.get("width", 0) * i.get("height", 0))))
+            return (imgs[0]["uri"] if imgs else None), strip_markup(d.get("profile"))
     r = session.get("https://api.discogs.com/database/search",
                     params={"q": artist, "type": "artist", "per_page": 5}, headers=h, timeout=20)
     r.raise_for_status()
@@ -668,6 +677,27 @@ def identify(artist, session, albums=(), known=None):
          -> MusicBrainz, which picks the one whose discography matches your albums.
     Returns a dict (type, begin, end, wikidata, enwiki, tags, country, verified, how) or None."""
     known = known or {}
+    from_ids = (known.get("ids") or {}).get("mbid")
+    if from_ids and known.get("mbid") not in (None, from_ids):
+        known = {**known, "wikidata": None}       # an earlier guess by name gives way to your albums' artist
+    if from_ids and not known.get("wikidata"):
+        try:
+            mb = musicbrainz(artist, session, albums, from_ids)
+        except Exception as e:
+            print(f"     musicbrainz unavailable ({e})")
+            mb = None
+        if mb:
+            mb.update(verified=True)
+            ent = wd_entities([mb["wikidata"]], session).get(mb["wikidata"]) if mb.get("wikidata") else None
+            if ent:
+                rec = wd_record(ent, mb.get("type") or wd_is_music(ent) or "Group", session, True,
+                                "ids.py: the artist on your albums' releases")
+                rec["id"] = mb["id"]
+                for k in ("begin", "end", "tags", "country"):
+                    rec[k] = rec[k] or mb.get(k)
+                return rec
+            mb.update(enwiki=None, how="ids.py: the artist on your albums' releases")
+            return mb
     if known.get("wikidata"):
         ent = wd_entities([known["wikidata"]], session).get(known["wikidata"])
         kind = ent and wd_is_music(ent)
@@ -779,7 +809,8 @@ def other_bios(artist, session, args, mb, used):
     if args.lastfm_key:
         add("lastfm", lambda: lastfm_bio(artist, session, args.lastfm_key, mb and mb.get("id")))
     if args.discogs_token:
-        add("discogs", lambda: (discogs_artist(artist, session, args.discogs_token) or (None, None))[1])
+        add("discogs", lambda: (discogs_artist(artist, session, args.discogs_token,
+                                               getattr(args, "_dc_id", None)) or (None, None))[1])
     return out
 
 def find_bio(artist, session, args, albums=(), facts=None):
@@ -827,9 +858,11 @@ def find_bio_first(artist, session, args, albums=(), facts=None):
         if b:
             return b, "lastfm", bool(who)
     if args.discogs_token:
-        d = attempt("discogs", lambda: discogs_artist(artist, session, args.discogs_token))
-        if d and d[1] and len(d[1]) > 40:
-            return d[1], "discogs", False
+        dc_id = ((facts.get("known") or {}).get("ids") or {}).get("discogs")
+        d = attempt("discogs", lambda: discogs_artist(artist, session, args.discogs_token, dc_id))
+        # the exact artist's profile counts however short ("MC from London."): Joe, 16 Nov
+        if d and d[1] and len(d[1]) > (8 if dc_id else 40):
+            return d[1], "discogs", bool(dc_id)
     if getattr(args, "translator", None) and who and who.get("wikidata"):
         b = attempt("other languages", lambda: foreign_bio(artist, who, session, args))
         if b:
@@ -848,6 +881,35 @@ def remember(meta, who):
         meta["identity_verified"] = bool(who.get("verified"))
         meta["identified_by"] = who.get("how", "")
         meta["name"] = who.get("name") or meta.get("name")
+
+def ids_artist(artist):
+    """The artist's MusicBrainz and Discogs IDs as ids.py matched them on
+    your albums in this artist's folder: the artist credited on each (by name
+    when an album credits several), the most often credited. {} if none."""
+    try:
+        import ids                          # here, not at the top: ids.py imports this file
+    except Exception:
+        return {}
+    from collections import Counter
+    want = norm(artist)
+    mbs, dcs = Counter(), Counter()
+    for k, a in (ids.library().get("albums") or {}).items():
+        if norm(Path(a.get("folder", "")).parent.name) != want and norm(a.get("artist")) != want:
+            continue
+        rec = load_json(ids.CACHE / f"{safe_name(k)}.json") or {}
+        for counter, credited in ((mbs, (rec.get("mb") or {}).get("artists") or []),
+                                  (dcs, (rec.get("discogs") or {}).get("artists") or [])):
+            credited = [c for c in credited if c.get("id")]
+            for c in credited:
+                name = norm(re.sub(r"\s*\(\d+\)$", "", c.get("name") or ""))
+                if len(credited) == 1 or name == want:
+                    counter[c["id"]] += 1
+    out = {}
+    if mbs:
+        out["mbid"] = mbs.most_common(1)[0][0]
+    if dcs:
+        out["discogs"] = dcs.most_common(1)[0][0]
+    return out
 
 SKIP_FOLDERS = {"compilations", "various", "various artists", "soundtracks", "podcasts", "audiobooks"}
 
@@ -955,7 +1017,8 @@ def find_photo(artist, who, adb, folders, session, args):
         return found[0].image_url if found else None
     tries.append(("deezer", deezer))
     if args.discogs_token:
-        tries.append(("discogs", lambda: discogs_artist(artist, session, args.discogs_token)[0]))
+        tries.append(("discogs", lambda: discogs_artist(artist, session, args.discogs_token,
+                                                        getattr(args, "_dc_id", None))[0]))
     tries.append(("wikipedia", lambda: wikipedia(artist, session)[0]))
     for source, find in tries:
         try:
@@ -1189,7 +1252,10 @@ def main(argv=None):
             meta = load_json(mp)
             nothing = meta is not None and not has_bio(meta)
             due = meta is not None and not nothing and stale(meta, args.refresh_after)
-            need = (meta is None or args.refresh or due
+            from_ids = ids_artist(artist)
+            # ids.py found a different artist on your albums than the one this bio is about
+            moved = bool(meta and from_ids.get("mbid") and meta.get("mbid") and meta["mbid"] != from_ids["mbid"])
+            need = (meta is None or args.refresh or due or moved
                     or (nothing and (args.retry_not_found or retry_due(meta, args.retry_after)))
                     or (not args.no_banners and meta.get("photo_source") is None))
             new_photo = False
@@ -1198,6 +1264,10 @@ def main(argv=None):
                     print(f"{i:4d}/{len(names)} {artist}")
                     known = {"wikidata": meta.get("wikidata"), "mbid": meta.get("mbid"),
                              "verified": meta.get("identity_verified", True)} if meta else {}
+                    known["ids"] = from_ids
+                    args._dc_id = from_ids.get("discogs")
+                    if moved:
+                        print(f"     your albums' releases name a different artist: looking again")
                     # a yearly check keeps the photo already there; --refresh does not
                     keep_photo = (due and not args.refresh and meta.get("photo_source")
                                   and (CACHE / f"{name}.jpg").exists())

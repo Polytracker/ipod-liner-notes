@@ -40,6 +40,7 @@ try:
     import requests, mutagen
     import artist_bios as ab
     import translate as tr
+    import ids
 except ModuleNotFoundError as e:
     print(f"Missing something: {e}")
     print("Put this file next to artist_bios.py, translate.py and art_fetch.py, and run: "
@@ -481,10 +482,13 @@ def foreign_notes(found, lang, session, translator):
                     + [tr.credit("wikipedia", lang=code, part=part)]), f"wikipedia ({code}, translated)"
     return None
 
-def lastfm_notes(info, names, session, key, lang=None):
-    for name in names:
-        params = {"method": "album.getinfo", "api_key": key, "format": "json",
-                  "artist": name, "album": clean_title(info["album"]), "autocorrect": 1}
+def lastfm_notes(info, names, session, key, lang=None, mbid=None):
+    """Last.fm's album write-up: asked by the MusicBrainz release ids.py
+    matched when there is one, then by artist and title."""
+    asks = ([{"mbid": mbid}] if mbid else []) + \
+           [{"artist": name, "album": clean_title(info["album"]), "autocorrect": 1} for name in names]
+    for ask in asks:
+        params = {"method": "album.getinfo", "api_key": key, "format": "json", **ask}
         if lang:
             params["lang"] = lang
         r = session.get("https://ws.audioscrobbler.com/2.0/", headers=ab.UA, timeout=20, params=params)
@@ -497,8 +501,25 @@ def lastfm_notes(info, names, session, key, lang=None):
             return text
     return ""
 
-def discogs_notes(info, session, token):
+def ids_record(info):
+    """What ids.py settled about this album (its MusicBrainz release and
+    group, Wikidata item, Discogs release), or {} if it hasn't identified it."""
+    name = ab.safe_name(f"{info['artist']} - {info['album']}")
+    rec = ab.load_json(ids.CACHE / f"{name}.json") if name else None
+    return rec if rec and rec.get("key") else {}
+
+def discogs_notes(info, session, token, rec=None):
     h = dict(ab.UA, Authorization=f"Discogs token={token}")
+    dc = (rec or {}).get("discogs") or {}
+    if dc.get("id"):
+        # the exact release ids.py matched: its notes, from the copy ids.py saved
+        rel = ids.saved_release("dcrel", dc["id"])
+        if rel is None:
+            d = session.get(f"https://api.discogs.com/releases/{dc['id']}", headers=h, timeout=20)
+            time.sleep(1.1)
+            rel = d.json() if d.ok else {}
+        notes = ab.strip_markup(rel.get("notes") or "")
+        return notes if len(notes) > 80 else ""
     r = session.get("https://api.discogs.com/database/search", headers=h, timeout=20, params={
         "artist": info["artist"], "release_title": clean_title(info["album"]), "type": "master",
         "per_page": 5})
@@ -537,9 +558,25 @@ def find_notes(info, who, session, args, found):
         except Exception as e:
             ab.problem(name, e)
             return None
-    item = attempt("wikidata", lambda: wd_album(info, who["wikidata"], session)) if who.get("wikidata") else None
-    rg = None
-    if not item:
+    rec = ids_record(info)
+    mb = rec.get("mb") or {}
+    item = None
+    if mb.get("rg"):
+        # ids.py has identified the album: its release group and Wikidata item, no guessing by name
+        rel = ids.saved_release("mbrel", mb["id"]) if mb.get("id") else None
+        rg = (rel or {}).get("release-group") or {"id": mb["rg"]}
+        found["rg"] = rg
+        found["rg_year"] = ab.year((rg.get("first-release-date") or "")[:4])
+        if mb.get("wikidata"):
+            ents = attempt("wikidata", lambda: ab.wd_entities(
+                [mb["wikidata"]], session, props="labels|descriptions|claims|sitelinks", sites=None))
+            ent = (ents or {}).get(mb["wikidata"])
+            item = item_result(ent, session, info) if ent else None
+        if not item:
+            item = attempt("wikidata", lambda: rg_item(rg, session, info))
+    elif who.get("wikidata"):
+        item = attempt("wikidata", lambda: wd_album(info, who["wikidata"], session))
+    if not item and not mb.get("rg"):
         rg = attempt("musicbrainz", lambda: release_group(info, who.get("mbid"), session))
         if rg:
             found["rg"] = rg
@@ -574,20 +611,21 @@ def find_notes(info, who, session, args, found):
     names = list(dict.fromkeys(n for n in (who.get("name"), ab.clean_artist(info["artist"]),
                                            info["folder_artist"]) if n))
     if args.lastfm_key:
-        text = attempt("last.fm", lambda: lastfm_notes(info, names, session, args.lastfm_key))
+        text = attempt("last.fm", lambda: lastfm_notes(info, names, session, args.lastfm_key, mbid=mb.get("id")))
         if text:
             return ab.trim_bio(text).split("\n") + [tr.credit("lastfm")], "last.fm"
         if args.translator:
             lang = lang or attempt("wikidata", lambda: artist_language(who, session))
             if lang:
-                text = attempt("last.fm", lambda: lastfm_notes(info, names, session, args.lastfm_key, lang))
+                text = attempt("last.fm", lambda: lastfm_notes(info, names, session, args.lastfm_key, lang,
+                                                               mbid=mb.get("id")))
                 if text and tr.needs_translation(text, lang):
                     english = args.translator.translate(text.split("\n"), lang)
                     if english:
                         return (ab.trim_bio("\n".join(english)).split("\n")
                                 + [tr.credit("lastfm", lang=lang)]), f"last.fm ({lang}, translated)"
     if args.discogs_token:
-        text = attempt("discogs", lambda: discogs_notes(info, session, args.discogs_token))
+        text = attempt("discogs", lambda: discogs_notes(info, session, args.discogs_token, rec))
         if text:
             return ab.trim_bio(text).split("\n") + [tr.credit("discogs")], "discogs"
     return [], ""
@@ -686,7 +724,10 @@ def main(argv=None):
             fresh = False
             try:
                 missing = meta is not None and not meta.get("notes")
-                if meta is None or args.refresh or due(meta, args.refresh_after) or \
+                rg = ((ids_record(info).get("mb") or {}).get("rg"))
+                # ids.py settled on a different album than these notes were found for
+                moved = bool(meta and rg and meta.get("rg") and meta["rg"] != rg)
+                if meta is None or args.refresh or due(meta, args.refresh_after) or moved or \
                         (missing and (args.retry_not_found or due(meta, args.retry_after))):
                     fresh = True
                     print(f"{i:4d}/{len(work)} {key}")

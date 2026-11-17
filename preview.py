@@ -561,7 +561,7 @@ def icon_mask(font, ch, size):
     return m if size == 24 else m.resize((size, size), Image.LANCZOS)
 
 def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, top=0, icons=None, icon_size=24,
-                 quote="indent"):
+                 quote="hang"):
     """The viewer's own two-line list, laid out like Scrim's 48 px art rows
     (list viewport from (10, 41), four rows, the bar 3 x 48). The selected
     row is white on both lines, as Scrim's selected row is; the others are
@@ -632,7 +632,7 @@ def person_icons(rows):
     """Scrim's icon per row of person_rows: "d" (its Album disc) or "a" (a note)."""
     return ["a" if r[0] == "T" else "d" for r in sorted(rows, key=lambda r: (r[1].lower(), r[2].lower(), r[3].lower()))]
 
-def person_rows(rows, quotes="\u201c\u201d"):
+def person_rows(rows, quotes="\u2018\u2019"):
     """(first line, grey after it, second line) for one person's own list:
     albums and tracks together, by artist and then album, so a track sits
     with the others from its album. A track's second line names its album."""

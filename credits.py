@@ -381,7 +381,7 @@ def sources_line(chosen):
     by_src = defaultdict(list)
     for group in ids.GROUPS:
         if group in chosen:
-            by_src[chosen[group][0]].append(group.lower())
+            by_src[chosen[group][0]].append("other credits" if group == "Credited" else group.lower())
     if len(by_src) == 1:
         return f"Credits from {names[next(iter(by_src))]}"
     parts = []
@@ -402,6 +402,8 @@ def page_text(key, album, rec, chosen, links, editions=None):
         found = rec.get("mb" if src == "MusicBrainz" else "discogs") or {}
         edition = (editions or {}).get(src) or found.get("edition") or found.get("title") or ""
         note = ids.tracks_note({"tracks": album["tracks"]}, found)
+        if not edition:
+            continue
         lead = "Credits for" if len(used) == 1 else f"{src} credits for"
         lines.append("#facts\t" + " · ".join(x for x in (f"{lead} {edition}", note) if x))
     lines.append(f"#status\t{status_line(len(links))}")

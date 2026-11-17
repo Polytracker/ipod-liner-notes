@@ -1165,7 +1165,7 @@ def main(argv=None):
         # albums since deleted or renamed, so nothing links to them
         ab.save_json(LIBRARY, {"checked": int(time.time()), "keys": sorted(a["key"] for a in albums),
                                "albums": {a["key"]: {
-                                   "artist": a["artist"], "album": a["album"],
+                                   "artist": a["artist"], "album": a["album"], "folder": a["folder"],
                                    "tracks": [[t["disc"], t["num"], t["title"]] for t in a["tracks"]],
                                    "tag_credits": a["tag_credits"]} for a in albums}})
     recs = [load(a) or {} for a in albums]

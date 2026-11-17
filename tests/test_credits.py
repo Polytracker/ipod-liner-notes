@@ -126,6 +126,10 @@ class Layout(unittest.TestCase):
         self.assertIn("#sources\tCredits from Discogs", lines)
         self.assertEqual(lines[-3:], ["#links", "P\tAnn\tDrums", "A\tOther\tRecord\tDrums"])
 
+    def test_sources_line_other_credits(self):
+        c = {"Musicians": ("Discogs", []), "Credited": ("Discogs", []), "Producers": ("MusicBrainz", [])}
+        self.assertEqual(cr.sources_line(c), "Musicians and other credits from Discogs, producers from MusicBrainz")
+
     def test_sources_line(self):
         c = {"Musicians": ("Discogs", []), "Engineers": ("Discogs", []), "Producers": ("MusicBrainz", [])}
         self.assertEqual(cr.sources_line(c), "Musicians and engineers from Discogs, producers from MusicBrainz")

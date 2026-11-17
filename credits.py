@@ -463,7 +463,21 @@ def sources_line(chosen):
         parts.append(f"{listed} from {names[src]}")
     return cap(", ".join(parts))
 
-PLACES = {"XW": "Worldwide", "XE": "Europe", "XU": "", "XG": "", "": ""}
+PLACES = {"XW": "Worldwide", "XE": "Europe", "XU": "", "XG": "", "": "",
+          # MusicBrainz writes countries as ISO codes; Discogs already in words
+          "GB": "UK", "US": "US", "CA": "Canada", "AU": "Australia", "NZ": "New Zealand",
+          "IE": "Ireland", "FR": "France", "DE": "Germany", "NL": "Netherlands",
+          "BE": "Belgium", "LU": "Luxembourg", "CH": "Switzerland", "AT": "Austria",
+          "IT": "Italy", "ES": "Spain", "PT": "Portugal", "SE": "Sweden", "NO": "Norway",
+          "DK": "Denmark", "FI": "Finland", "IS": "Iceland", "PL": "Poland",
+          "CZ": "Czechia", "HU": "Hungary", "GR": "Greece", "TR": "Turkey",
+          "RU": "Russia", "UA": "Ukraine", "JP": "Japan", "KR": "South Korea",
+          "CN": "China", "TW": "Taiwan", "HK": "Hong Kong", "SG": "Singapore",
+          "IN": "India", "ID": "Indonesia", "MY": "Malaysia", "PH": "Philippines",
+          "TH": "Thailand", "IL": "Israel", "ZA": "South Africa", "NG": "Nigeria",
+          "BR": "Brazil", "AR": "Argentina", "MX": "Mexico", "CL": "Chile",
+          "CO": "Colombia", "JM": "Jamaica", "YU": "Yugoslavia", "SU": "Soviet Union",
+          "XC": "Czechoslovakia", "DD": "East Germany"}
 FORMATS = {"Digital Media": "Digital", "File": "Digital"}
 
 def plain_edition(edition, album_title):

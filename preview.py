@@ -552,24 +552,30 @@ def cut(font, text, width):
         text = text[:-1]
     return text.rstrip(" ,") + "\u2026"
 
-def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, top=0):
+def list_screen2(fonts, bg, title, rows, sel=0, clock="12:17 AM", accent=None, top=0, icons=None):
     """The viewer's own two-line list, laid out like Scrim's 48 px art rows
-    (list viewport from (10, 41), four rows, the bar 3 x 48): the first line
-    in the list font, white when selected and grey otherwise, then a grey
-    remainder after a comma; the second line in the 14-pt font, grey. Only
-    the selected row's first line scrolls on the iPod."""
+    (list viewport from (10, 41), four rows, the bar 3 x 48). The selected
+    row is white on both lines, as Scrim's selected row is; the others are
+    grey, the second line in the 14-pt font. Only the selected row's first
+    line scrolls on the iPod. With `icons` (a glyph of Scrim's 24x24 icon
+    font per row, "d" an album, "a" a track), each row starts with its icon
+    as Scrim's icon rows do: icon at x = 2, bar at x = 36, text at x = 46."""
     img = list_area(bg)
     chrome(img, fonts, title, clock)
     body, small = fonts["body"], fonts["small"]
+    ix = 46 if icons else 12
     y = 41
     for n, (main, extra, second) in enumerate(rows[top:top + 4], top):
         on = n == sel
+        ink = (255, 255, 255) if on else GREY
+        if icons and fonts.get("icons"):
+            fonts["icons"].draw(img, 12, y + 12, icons[n], ink)
         if on:
-            bar(img, 12, y, 48, accent or (255, 255, 255))
-        x = clipped(img, body, 22, y + 6, main, (255, 255, 255) if on else GREY)
+            bar(img, 10 + ix - 10, y, 48, accent or (255, 255, 255))
+        x = clipped(img, body, 10 + ix, y + 6, main, ink)
         if extra:
-            clipped(img, body, x, y + 6, f", {extra}", GREY)
-        clipped(img, small, 22, y + 6 + body.height + 3, cut(small, second, 288), GREY)
+            clipped(img, body, x, y + 6, f", {extra}", ink)
+        clipped(img, small, 10 + ix, y + 6 + body.height + 3, cut(small, second, 298 - ix), ink)
         y += 48
     return img
 
@@ -605,6 +611,10 @@ def how_many(rows):
     t = sum(1 for r in rows if r[0] == "T")
     part = lambda n, w: f"{n} {w}{'' if n == 1 else 's'}"
     return ", ".join(x for x in (part(a, "album") if a else "", part(t, "track") if t else "") if x)
+
+def person_icons(rows):
+    """Scrim's icon per row of person_rows: "d" (its Album disc) or "a" (a note)."""
+    return ["a" if r[0] == "T" else "d" for r in sorted(rows, key=lambda r: (r[1].lower(), r[2].lower(), r[3].lower()))]
 
 def person_rows(rows):
     """(first line, grey after it, second line) for one person's own list:

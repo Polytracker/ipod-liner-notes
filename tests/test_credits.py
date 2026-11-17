@@ -35,6 +35,11 @@ def mb_person(aid, name, typ, attrs=(), credit=None):
 
 
 class Roles(unittest.TestCase):
+    def test_country_names(self):
+        self.assertEqual(cr.plain_edition('Paranoid · 1970 · 12" Vinyl · CH', "Paranoid"),
+                         '1970, 12" Vinyl, Switzerland')
+        self.assertEqual(cr.plain_edition("X · 2001 · CD · GB", "Y"), "X, 2001, CD, UK")
+
     def test_engineer_names(self):
         self.assertEqual(cr.mb_role({"type": "recording", "attributes": []}), "Recording engineer")
         self.assertEqual(cr.mb_role({"type": "recording", "attributes": ["assistant"]}),
@@ -163,7 +168,7 @@ class Layout(unittest.TestCase):
         self.assertEqual(cr.plain_edition("OK Computer · 2016 · Digital Media · XW", "OK Computer"),
                          "2016, Digital, Worldwide")
         self.assertEqual(cr.plain_edition("Down in Albion (deluxe edition) · 2005 · 2×CD · GB", "Down in Albion"),
-                         "Down in Albion (deluxe edition), 2005, 2×CD, GB")
+                         "Down in Albion (deluxe edition), 2005, 2×CD, UK")
         self.assertEqual(cr.mb_role({"type": "instrument", "attributes": ["additional", "bass guitar"]}),
                          "Additional bass guitar")
 

@@ -443,7 +443,8 @@ PLACES = {"XW": "Worldwide", "XE": "Europe", "XU": "", "XG": "", "": ""}
 FORMATS = {"Digital Media": "Digital", "File": "Digital"}
 
 def plain_edition(edition, album_title):
-    """ "OK Computer · 2016 · Digital Media · XW" -> "2016 · Digital · Worldwide":
+    """ "OK Computer · 2016 · Digital Media · XW" (as ids.py writes it) ->
+    "2016, Digital, Worldwide" (commas on the page: Scrim has no dot dividers):
     the title goes when it's the album's own (it's just above), and
     MusicBrainz's codes become words."""
     parts = [p.strip() for p in (edition or "").split(" · ")]
@@ -455,7 +456,7 @@ def plain_edition(edition, album_title):
         p = re.sub(r"\b(Digital Media|File)\b", lambda m: FORMATS[m.group(1)], p)
         if p:
             out.append(p)
-    return " · ".join(out)
+    return ", ".join(out)
 
 def page_text(key, album, rec, chosen, links, editions=None):
     """The Credits file. Lines starting "#" are drawn by the viewer in its
@@ -474,7 +475,7 @@ def page_text(key, album, rec, chosen, links, editions=None):
         if not edition:
             continue
         lead = "Edition:" if len(used) == 1 else f"{src} edition:"
-        lines.append("#facts\t" + " · ".join(x for x in (f"{lead} {edition}", note) if x))
+        lines.append("#facts\t" + ", ".join(x for x in (f"{lead} {edition}", note) if x))
     lines.append(f"#status\t{status_line(len(links))}")
     for group in ids.GROUPS:
         if group not in chosen:

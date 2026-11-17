@@ -395,7 +395,7 @@ def list_screen(fonts, bg, title, rows, clock="12:17 AM"):
         ty = y + (30 - body.height) // 2
         x = body.draw(img, x, ty, main, fg)
         if extra:
-            body.draw(img, x, ty, f" · {extra}", dim)
+            body.draw(img, x, ty, f", {extra}", dim)
         y += 30
     return img
 

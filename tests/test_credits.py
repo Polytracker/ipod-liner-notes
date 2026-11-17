@@ -141,7 +141,7 @@ class Layout(unittest.TestCase):
         text = cr.page_text("Band - Album", album, rec, chosen,
                             [("Ann", "Drums", ["A\tOther\tRecord\tDrums"])])
         lines = text.splitlines()
-        self.assertEqual(lines[0], "#facts\tEdition: 1999 · CD · UK · your 3 of its 5 tracks")
+        self.assertEqual(lines[0], "#facts\tEdition: 1999, CD, UK, your 3 of its 5 tracks")
         self.assertEqual(lines[1], "#status\t1 person appears elsewhere in your library")
         self.assertIn("## Musicians", lines)
         self.assertIn("Ann\tDrums", lines)
@@ -150,9 +150,9 @@ class Layout(unittest.TestCase):
 
     def test_plain_edition(self):
         self.assertEqual(cr.plain_edition("OK Computer · 2016 · Digital Media · XW", "OK Computer"),
-                         "2016 · Digital · Worldwide")
+                         "2016, Digital, Worldwide")
         self.assertEqual(cr.plain_edition("Down in Albion (deluxe edition) · 2005 · 2×CD · GB", "Down in Albion"),
-                         "Down in Albion (deluxe edition) · 2005 · 2×CD · GB")
+                         "Down in Albion (deluxe edition), 2005, 2×CD, GB")
         self.assertEqual(cr.mb_role({"type": "instrument", "attributes": ["additional", "bass guitar"]}),
                          "Additional bass guitar")
 

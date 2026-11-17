@@ -171,7 +171,7 @@ def page_text(title, place, album, intro, article, date, part="introduction"):
     and "#sources" crediting the article."""
     paras = ab.trim_bio(intro).split("\n")
     credit = tr.credit("wikipedia", title=article, date=date, part=part)[2:]       # without its "# "
-    lines = [f"#title\t{title}", f"#facts\tTrack {place} · {album}", ""]
+    lines = [f"#title\t{title}", f"#facts\tTrack {place}, {album}", ""]
     lines += [p for p in paras if p]
     lines += ["", f"#sources\t{credit}"]
     return "\n".join(lines) + "\n"

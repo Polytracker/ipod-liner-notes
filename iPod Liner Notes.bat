@@ -44,6 +44,24 @@ if not exist "%MUSIC%\" (
     exit /b 1
 )
 
+rem A read-only disk check first. Writing to a disk that already has errors
+rem can spread them, so stop and say how to repair it.
+echo Checking the iPod's disk, read only (about a minute)...
+chkdsk %IPOD% >nul 2>&1
+if errorlevel 3 (
+    echo.
+    echo The disk check found errors on the iPod, or couldn't run.
+    echo Nothing has been written to it.
+    echo To repair it: close the Claude app and any Explorer windows on the
+    echo iPod, open PowerShell as administrator and run:  chkdsk %IPOD% /f
+    echo Then run this file again.
+    echo.
+    pause
+    exit /b 1
+)
+echo Disk OK.
+echo.
+
 echo ============================================================
 echo  Step 1 of 6: fetching artist photos online
 echo ============================================================

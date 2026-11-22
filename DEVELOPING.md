@@ -55,6 +55,20 @@ and later runs make no requests for albums already identified.
 Albums split across folders under one album name count as one album
 (`merge_folders`), as they do on the iPod.
 
+**How a candidate is checked:** the artist (accents folded), the track count,
+durations (within the larger of 5 s and 2% on at least 80% of tracks) and
+titles (remaster notes stripped). Same tracks by title pass even when lengths
+differ (live albums, segues). An edition with more or fewer tracks is
+accepted by ISRC or title; a deluxe copy matches an original-only folder when
+at least 90% of the original's tracks are in it by title, the album titles
+match, and the original has at least 5 tracks and 40% of the copy's. A
+Discogs "index" track counts as one track. After a name search the artist
+must always match. Artist names with a non-Latin spelling are also searched
+without it ("Ryo Fukui, 福居良"); "Earth, Wind & Fire" is never split.
+AcoustID isn't used: fingerprint the library in Picard and its IDs are
+picked up from the tags. `Albums not identified.txt` lists each failure with
+the editions tried and why each was rejected.
+
 ## Where the text comes from
 
 Each page has an order of sources, first hit wins:
@@ -77,6 +91,19 @@ Each page has an order of sources, first hit wins:
   files' own credit tags, otherwise whichever of MusicBrainz and Discogs
   covers more of your album in that group. `credits.py --compare` lists where
   that choice changed without writing anything.
+
+- **Photos and banners:** TheAudioDB (by MusicBrainz ID when known),
+  Deezer (only when one of its albums matches an album folder), Discogs,
+  Wikipedia, else an album cover. Banners are cropped to keep faces whole:
+  YuNet face detection, small background faces dropped, an upside-down
+  retry, and the most detailed strip as the fallback.
+- **Long bios:** over 3,000 characters, a bio is swapped only for one at
+  least 25% shorter that is still a proper bio (400 characters or more).
+  A short Discogs profile ("MC from London.") still counts as a bio.
+- **Person or project:** Wikidata and MusicBrainz sometimes split a person
+  from their project (Blood Orange and Dev Hynes, Squarepusher and Tom
+  Jenkinson, MF DOOM and Madvillain). The bio follows the name on the album
+  folder.
 
 Machine-translated text always says so in its last line, and DeepL's
 asterisk italics are stripped. Last.fm text can be fan-written; it's kept,
@@ -144,7 +171,10 @@ never deleted.
   retried after 2, 4, 8, 16 and 32 s before falling back to another source.
 - Every request sends a `User-Agent` naming this project, as Wikimedia and
   MusicBrainz ask.
-- Discogs and Last.fm requests honour `Retry-After`.
+- Discogs: at most one request every 1.1 s, never two at once, the token in
+  the header over HTTPS, backing off on 429 and slowing when the
+  remaining-requests header runs low.
+- Last.fm requests honour `Retry-After`.
 
 ## Tests
 

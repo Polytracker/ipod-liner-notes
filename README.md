@@ -1,7 +1,7 @@
 # iPod Liner Notes
 
-Artist photos, artist bios and album liner notes for an iPod running PodBox,
-in one click.
+Artist photos, artist bios, album and track notes, and album credits for an
+iPod running PodBox.
 
 This carries on from [ipod-artist-photos](https://github.com/Polytracker/ipod-artist-photos),
 which only did artist photos and is no longer being developed. Everything it
@@ -10,7 +10,7 @@ did is included here, unchanged, alongside the new artist bios and liner notes.
 > [!WARNING]
 > **Still in development, not ready for public use yet.** This is an
 > experimental tool I'm testing on my own iPod. Things may change or break
-> between versions, and the Artist Bio screen it writes for isn't available
+> between versions, and the Liner Notes viewer it writes for isn't available
 > in any official PodBox release. If you just want artist photos, use
 > [ipod-artist-photos](https://github.com/Polytracker/ipod-artist-photos)
 > instead.
@@ -23,38 +23,48 @@ did is included here, unchanged, alongside the new artist bios and liner notes.
 >   version 3.8). This is an unofficial fork and isn't affiliated with or
 >   endorsed by the PodBox project. Please report problems with this tool
 >   here, not to PodBox.
-> - **Written with AI.** The changes to `art_fetch.py`, and the new
->   `artist_fallback.py`, `artist_bios.py`, `liner_notes.py` and
->   `iPod Liner Notes.bat`,
->   were written with the help of Claude, an AI assistant made by Anthropic,
->   at my direction.
+> - **Written with AI.** The changes to `art_fetch.py`, and all the other
+>   scripts here (`artist_fallback.py`, `ids.py`, `artist_bios.py`,
+>   `liner_notes.py`, `track_notes.py`, `credits.py`, `translate.py`,
+>   `preview.py`, `link_dryrun.py`, `iPod Liner Notes.bat` and
+>   `Run liner notes pages.ps1`), were written with the help of Claude, an AI
+>   assistant made by Anthropic, at my direction.
 >   I've used them on my own iPod Classic, but they haven't been tested more
->   widely.
-> - **Bios and liner notes need a custom PodBox build.** The **Artist Bio**
->   and **Liner Notes** screens that show them aren't in PodBox's official
->   releases yet; Artist Bio has been proposed to the PodBox developer. Until
->   they are, seeing them on the iPod means building PodBox from source with
->   those changes added. On an official PodBox build both steps are skipped
->   automatically, and everything else (artist photos, database and art cache)
->   works as normal.
+>   widely. The text on the pages is never written by AI: it all comes from
+>   Wikipedia, Last.fm, Discogs and MusicBrainz, credited on each page.
+> - **The pages need a custom PodBox build.** The **Liner Notes** viewer that
+>   shows them (its pages are **Bio**, **Album**, **Track** and **Credits**)
+>   isn't in PodBox's official releases yet; the Artist Bio part has been
+>   proposed to the PodBox developer. Until it is, seeing the pages on the
+>   iPod means building PodBox from source with those changes added. On an
+>   official PodBox build the bio and notes steps are skipped automatically,
+>   and everything else (artist photos, database and art cache) works as
+>   normal.
 > - **Use at your own risk.** The tool writes picture files into your iPod's
 >   music folders and updates its database. Keep a backup of your music.
 
-A one-click Windows tool that fills the **Artist Portraits** menu and the
-**Artist Bio** and **Liner Notes** screens of an iPod running [PodBox](https://github.com/anthonyfletcher/podbox), the Rockbox-based
+A Windows tool that fills the **Artist Portraits** menu and the four pages of
+the **Liner Notes** viewer on an iPod running [PodBox](https://github.com/anthonyfletcher/podbox), the Rockbox-based
 firmware for the iPod Classic and iPod Video.
 
-Double-click one file and it:
+Between them, its scripts:
 
-1. finds a photo of every artist on your iPod, from Last.fm, Deezer,
+1. find a photo of every artist on your iPod, from Last.fm, Deezer,
    fanart.tv and TheAudioDB;
-2. uses an album cover for any artist with no photo anywhere, so nobody is
+2. use an album cover for any artist with no photo anywhere, so nobody is
    left blank;
-3. writes a biography and a banner photo for each artist, for the
-   **Artist Bio** screen (hold Select on Now Playing);
-4. writes liner notes for each album, with the critics' scores, for the
-   **Liner Notes** screen;
-5. updates the iPod's database and art cache, so the pictures are there as
+3. work out exactly which release each album folder is, so no page is ever
+   about a different album with the same name;
+4. write a biography and a banner photo for each artist, for the **Bio**
+   page (hold Select on Now Playing);
+5. write liner notes for each album, with the critics' scores, for the
+   **Album** page;
+6. write notes for songs that have their own write-up, for the **Track**
+   page;
+7. list who played on, produced, engineered and wrote each album, for the
+   **Credits** page, and which of those people are on other albums you have
+   (**Other Appearances**);
+8. update the iPod's database and art cache, so the pictures are there as
    soon as you eject it, with nothing to do on the iPod itself.
 
 ---
@@ -114,13 +124,18 @@ You should now have these files in that folder:
 
 | File | What it is |
 |---|---|
-| `iPod Liner Notes.bat` | The one you double-click. It runs everything below in order. |
+| `iPod Liner Notes.bat` | The one you double-click: photos, bios, album notes, then the database and art cache. |
+| `Run liner notes pages.ps1` | All four Liner Notes pages (bios, album notes, track notes, credits), with a log of each. |
 | `art_fetch.py` | Finds artist photos online. |
 | `artist_fallback.py` | Uses an album cover when no photo can be found. |
-| `artist_bios.py` | Writes each artist's bio and banner for the Artist Bio screen. |
-| `liner_notes.py` | Writes each album's notes and cover banner for the Liner Notes screen. |
-| `translate.py` | Translates bios and notes for artists who don't work in English, when you add a DeepL key. |
-| `iPod Liner Notes settings.txt` | Settings for the bios and liner notes (see [Settings](#settings)). |
+| `ids.py` | Works out which release each album folder is, for all the pages (see [Which album is it](#which-album-is-it)). |
+| `artist_bios.py` | Writes each artist's bio and banner for the Bio page. |
+| `liner_notes.py` | Writes each album's notes and cover banner for the Album page. |
+| `track_notes.py` | Writes notes for songs with their own write-up, for the Track page. |
+| `credits.py` | Writes each album's credits for the Credits page. |
+| `translate.py` | Translates text for artists who don't work in English, when you add a DeepL key. |
+| `preview.py`, `link_dryrun.py` | Checking tools for changing the scripts; you don't need them (see `DEVELOPING.md`). |
+| `iPod Liner Notes settings.txt` | Settings for the pages (see [Settings](#settings)). |
 
 Keep them together in the same folder.
 
@@ -179,14 +194,39 @@ If Windows shows **"Windows protected your PC"** the first time, click
 **More info**, then **Run anyway**. That appears for any downloaded `.bat`
 file.
 
-### What each run does
+Before writing anything, both the `.bat` and `Run liner notes pages.ps1` run a
+read-only disk check of the iPod (about a minute). If it finds errors they
+stop with nothing written, and say how to repair the disk: writing to a
+damaged disk spreads the damage.
+
+### Track notes and credits
+
+The `.bat` doesn't do the Track and Credits pages yet. For those (and the
+bios and album notes again, which are quick when there's nothing new), open
+PowerShell in the tool's folder (in File Explorer, click the address bar,
+type `powershell` and press Enter) and run:
+
+```
+python ids.py
+powershell -ExecutionPolicy Bypass -File ".\Run liner notes pages.ps1"
+```
+
+`ids.py` identifies your albums; the Track and Credits steps need it to have
+run, and stop with **"Run ids.py first"** if it hasn't. Run it again after
+adding music. The PowerShell script then fetches the four pages in turn,
+showing progress as it goes and saving each step's output as
+`bios log.txt`, `notes log.txt`, `track notes log.txt` and
+`credits log.txt`. It doesn't touch the database or art cache, which these
+pages don't need.
+
+### What each run of the .bat does
 
 | Step | What happens |
 |---|---|
 | 1. Fetch photos | Looks for a photo of each artist that doesn't have one yet, including artists showing an album cover in place of one. A cover is replaced only when a real photo is found. Artists with a real photo already are skipped. |
 | 2. Album cover fallback | Any artist still without a photo gets the cover of their biggest album, squared, instead. |
-| 3. Fetch bios | Writes a bio and banner for each artist that doesn't have one yet (see **Artist bios** below). Runs only if the PodBox on your iPod has the Artist Bio screen. |
-| 4. Fetch liner notes | Writes notes for each album that doesn't have them yet (see **Liner notes** below). Runs only if the PodBox on your iPod has the Liner Notes screen. |
+| 3. Fetch bios | Writes a bio and banner for each artist that doesn't have one yet (see **Artist bios** below). Runs only if the PodBox on your iPod has the Liner Notes viewer. |
+| 4. Fetch liner notes | Writes notes for each album that doesn't have them yet (see **Liner notes** below). Runs only if the PodBox on your iPod has the Liner Notes viewer. |
 | 5. Update database | Runs PodBox's database tool on the iPod. |
 | 6. Update art cache | Runs PodBox's art cache tool, so the new pictures show straight away. |
 
@@ -198,6 +238,11 @@ At the end it prints a summary, and saves these lists in the tool's folder:
   all.
 - **Artists without bios.txt**: artists no bio could be found for.
 - **Albums without notes.txt**: albums whose page has only the facts line.
+
+`ids.py` also saves **Albums not identified.txt** (each album it couldn't
+pin down, the editions it tried and why each was turned down), and
+`track_notes.py` saves **Tracks not used.txt** (songs with a Wikipedia
+article that didn't get a page, and why).
 
 ### After each sync
 
@@ -238,8 +283,8 @@ save; it takes effect on the next run.
 |---|---|---|
 | `ipod drive` | `G:` | The iPod's drive letter |
 | `music folder` | empty | The music folder, if it isn't `Music` on the iPod's drive |
-| `bios` | `auto` | Artist bios: `auto` writes them only if the PodBox on the iPod has the Artist Bio screen, `yes` always, `no` never |
-| `liner notes` | `auto` | The same for liner notes and the Liner Notes screen |
+| `bios` | `auto` | Artist bios: `auto` writes them only if the PodBox on the iPod has the Liner Notes viewer, `yes` always, `no` never |
+| `liner notes` | `auto` | The same for the album notes |
 | `recheck missing days` | `30` | Days before artists with no bio and albums with no notes are looked for again; `0` never. Ones that have them are left alone |
 | `bio recheck days` | `365` | Days before an artist's bio is checked again; `0` never checks. Artists who have died and bands that have split are never checked again |
 | `notes recheck days` | `365` | The same for an album's liner notes |
@@ -248,10 +293,29 @@ save; it takes effect on the next run.
 | `discogs token` | empty | Your Discogs personal token, an extra source for both |
 | `deepl key` | empty | Your DeepL key, to translate bios and notes for artists who don't work in English (see **Translation**) |
 
+### Which album is it
+
+Every page depends on knowing exactly which release an album folder is, so a
+page about another album with the same name never appears. `ids.py` works
+this out once per album, from the strongest evidence first: MusicBrainz or
+Discogs IDs already in your tags (from Picard, say), then the barcode, ISRCs,
+store links, CD disc ID and catalogue number, and only last a search by
+artist and title. Every candidate is checked against your files (the
+artist, the track titles, the number of tracks and their lengths) and
+dropped if they don't line up. A deluxe edition still matches a folder you
+trimmed back to the original album, and the pages say which edition their
+information is for.
+
+The results are kept on the PC (in `%APPDATA%\RockboxArtistArt\ids`), so
+later runs only look at new albums, albums whose tags have changed, and,
+after 30 days, ones nothing was found for. It changes none of your files.
+`python ids.py --only "Artist - Album"` does one album, `--refresh`
+everything again.
+
 ### Artist bios
 
 Step 3 writes two files per artist into `Artwork\Bios` at the root of the
-iPod, which the **Artist Bio** screen reads:
+iPod, which the **Bio** page reads:
 
 - `<Artist>.txt`: the name, a line of genre, home town and dates (birth to
   death for a person, start to end for a band), then the biography.
@@ -265,7 +329,8 @@ Last.fm, translated (see **Translation**), and failing those a line of facts.
 The last line of each bio says where it came from and the date it was
 retrieved. Before looking anything up it checks which
 artist yours is: when several share the name (a singer called Dijon, and the
-city), it picks the one whose albums match your album folders. A very long
+city), it picks the one whose albums match your album folders, using the
+artist `ids.py` found on your albums when it has run. A very long
 bio is swapped for a much shorter one from another source when there is one.
 
 Photos come from TheAudioDB, Deezer, Discogs or Wikipedia. When none has
@@ -285,17 +350,18 @@ To write your own bio or banner, edit or replace the file in
 artist up again, run `python artist_bios.py "G:\Music" --refresh`, or for one
 artist add `--only "Artist Name"`.
 
-The Artist Bio screen isn't in PodBox's official releases yet, so to see the
-bios you need a PodBox build compiled from source with the Artist Bio changes
+The Liner Notes viewer isn't in PodBox's official releases yet, so to see the
+bios you need a PodBox build compiled from source with the Liner Notes viewer
 added. The `.bat`
-checks the iPod and skips this step when its PodBox doesn't have the screen.
+checks the iPod and skips this step when its PodBox doesn't have it.
 To change that, set `bios` in the settings file: `yes` writes bios whatever
 the firmware, `no` never does.
 
 ### Liner notes
 
 Step 4 writes two files per album into `Artwork\Notes` at the root of the
-iPod, named `<Album Artist> - <Album>`, which the **Liner Notes** screen reads:
+iPod, named `<Album Artist> - <Album>`, which the **Album** page reads (hold
+Select on Now Playing, or on an album in Music):
 
 - `.txt`: the title, a facts line (artist, year, label, tracks, length), the
   album's notes, then the critics' scores, and where the text came from and
@@ -303,8 +369,9 @@ iPod, named `<Album Artist> - <Album>`, which the **Liner Notes** screen reads:
 - `.jpg`: the album's own cover (`cover.jpg`, `folder.jpg` or the art in the
   files), cropped to a 320 x 160 banner.
 
-Each album is matched first among the artist's albums on Wikidata, else on
-MusicBrainz by the artist and title, so a song, a single or a video of the
+Each album is matched by the release `ids.py` found for it, when it has run;
+otherwise first among the artist's albums on Wikidata, else on MusicBrainz by
+the artist and title, so a song, a single or a video of the
 same name can't take its place (a folder of three tracks or fewer is taken to
 be a single). Its English Wikipedia article supplies the introduction, the
 first paragraph about what critics made of it and the scores from its ratings
@@ -326,6 +393,55 @@ rewritten if they've really changed. To look
 an album up again, run
 `python liner_notes.py "G:\Music" --only "Artist - Album" --refresh`. The
 `liner notes` setting works like `bios`.
+
+### Track notes
+
+`track_notes.py` writes one file per song that has its own English Wikipedia
+article, into `Artwork\Tracks`, named `<Album Artist> - <Track Title>.txt`:
+the title, a facts line, the article's introduction (with a paragraph of its
+background when the introduction is short) and where it came from. Most
+songs have no article and get no page; the Track page is then left out for
+them.
+
+Songs are found from the album `ids.py` identified, not by searching for
+their titles: a song counts only when Wikidata lists it on that album and
+its title matches one of your tracks. The article must be a real write-up
+and name your artist in its opening, so a cover version never gets the
+original's article. Where Wikipedia has nothing, Last.fm's notes are used if
+Last.fm puts the track on your album or by your artist; Last.fm text can be
+written by fans, and the page says it's from Last.fm. Albums are looked at
+again after 180 days. The first run over about 1,000 tracks takes 4 to 5
+minutes.
+
+### Credits
+
+`credits.py` writes one file per album into `Artwork\Credits`, named
+`<Album Artist> - <Album>.txt`, listing who made it in five groups:
+**Musicians**, **Producers**, **Engineers**, **Songwriters** and
+**Credited** (everyone else). Each group comes whole from one source, never
+mixed: your files' own credit tags if they have any for that group,
+otherwise whichever of MusicBrainz and Discogs covers more of your album.
+Credits for tracks you don't have are left out, and credits for only some of
+your tracks say which ("Drums [2, 5-7]", drawn small and grey on the iPod).
+The page names the edition its credits are for.
+
+Pressing Select on the Credits page lists **Other Appearances**: people
+credited on this album who are also on other albums or tracks in your
+library; choosing one lists those, and opens them. People are matched by
+their MusicBrainz or Discogs ID, never by name alone, so two people with the
+same name aren't mixed up. A band's own members aren't listed for the band's
+other albums, as that would be all of them.
+
+`credits.py` reuses the releases `ids.py` saved, so it makes few requests.
+Without a `discogs token` in the settings file, `ids.py` doesn't look on
+Discogs, so the credits come from your tags and MusicBrainz only.
+
+### Turning pages off on the iPod
+
+Each page can be switched off on the iPod, under **Settings > Appearance >
+Viewers > Liner Notes**, as can the whole viewer. A script whose page is off
+fetches nothing. Files already on the iPod are never deleted, whether a page
+is on or off; delete them yourself if you want them gone.
 
 ### Translation
 
@@ -354,6 +470,10 @@ the same text twice. A whole library uses a small part of the free allowance.
 | An artist gets the wrong person's photo | Delete that artist's `folder.jpg` on the iPod and add one yourself (see **Adding a photo yourself**). |
 | An artist is never found | Check the artist's name is spelled correctly in your music tags. The tool searches by the name in your tags. |
 | Database or art cache step says FAILED | Switch the iPod on once with PodBox, then try again, or run the update on the iPod (see **Updating the iPod's database**). |
+| Track notes or credits say **Run ids.py first** | Run `python ids.py` in the tool's folder, then run them again. |
+| `running scripts is disabled on this system` | Start the PowerShell script with `powershell -ExecutionPolicy Bypass -File ".\Run liner notes pages.ps1"`, as shown in **Track notes and credits**. |
+| The disk check found errors | Close any Explorer windows on the iPod, open PowerShell as administrator and run `chkdsk G: /f` (with your iPod's drive letter), then run the tool again. |
+| An album's pages are missing or about the wrong edition | If it's in **Albums not identified.txt**, that says what was tried and why it was turned down. Tagging it in MusicBrainz Picard puts its IDs in the tags, and `ids.py` uses those first. |
 
 ---
 
@@ -403,23 +523,43 @@ read. art_fetch replaces these stand-ins only when it finds a real photo.
 With `--remove` it takes them away, leaving any picture you've added
 yourself.
 
-**`artist_bios.py`** (new): bios and banner photos for PodBox's Artist Bio
-screen. See **Artist bios** above.
+**`artist_bios.py`** (new): bios and banner photos for PodBox's Bio
+page. See **Artist bios** above.
 
-**`liner_notes.py`** (new): liner notes and cover banners for PodBox's Liner
-Notes screen. See **Liner notes** above.
+**`ids.py`** (new): which release each album folder is, for all the pages.
+See **Which album is it** above.
 
-**`iPod Liner Notes.bat`** (new): runs everything above in order,
-then updates the database and art cache with PodBox's tools.
+**`liner_notes.py`** (new): liner notes and cover banners for PodBox's Album
+page. See **Liner notes** above.
+
+**`track_notes.py`** and **`credits.py`** (new): the Track and Credits pages.
+See **Track notes** and **Credits** above.
+
+**`translate.py`** (new): DeepL translation for the pages. See
+**Translation** above.
+
+**`preview.py`** and **`link_dryrun.py`** (new): checking tools for changing
+the scripts: pictures of Credits pages drawn with the iPod's own fonts, and a
+report of who would link to whom in Other Appearances. Neither writes to the
+iPod.
+
+**`iPod Liner Notes.bat`** (new): photos, fallback, bios and album notes in
+order, then updates the database and art cache with PodBox's tools.
+
+**`Run liner notes pages.ps1`** (new): bios, album notes, track notes and
+credits, with a log of each.
 
 ---
 
 ## Checking changes
 
-`python -m unittest discover tests` runs offline checks of the cases that
-have tripped real runs: a song or a video taken for an album, lost quote
-marks, untidy scores, reissue years, names too long for the iPod, and the
-language checks. They need no network and take under a second.
+`python -m pytest -q` (after `pip install pytest`) runs about 105 offline
+checks of the cases that have tripped real runs: the wrong edition or a song
+or video taken for an album, lost quote marks, untidy scores, reissue years,
+names too long for the iPod, credit groups and role names, the file formats,
+translation credits, the language checks and the iPod's page switches. They
+need no network and take about a second. `DEVELOPING.md` has the details for
+anyone changing the scripts.
 
 ## Licence
 

@@ -251,6 +251,32 @@ skipped, so repeat runs are quick. Each artist still on the album-cover list
 is looked up again every time, so photos for them appear once Last.fm or
 Deezer gets one.
 
+### Running it when you install PodBox
+
+If you install the custom Liner Notes builds of PodBox with their install
+script (a PowerShell block you paste in, which unzips the build onto the
+iPod), you rarely need to start the `.bat` yourself. After installing, the
+script:
+
+1. checks the iPod's disk, read only, and installs nothing if it finds
+   errors;
+2. unzips the build and checks the version on the iPod is the one expected;
+3. checks the iPod's database, and rebuilds it if a file is missing or a
+   save was left half done (the old one is kept as `database_broken`);
+4. runs **iPod Liner Notes.bat**, but only when the database was just
+   rebuilt, there's new music (an artist folder in `Music` is newer than the
+   `Artwork\.liner-notes-last-run` marker it leaves on the iPod), or
+   `refresh after podbox install = yes` is set in the settings file.
+   Otherwise it leaves the photos, pages and database as they are, which
+   saves the run's time and the online lookups.
+
+It expects this tool in `Documents\Claude\iPod Liner Notes` and the iPod
+on **G:**. It runs only the `.bat`, so the Track and Credits pages still need
+the steps in **Track notes and credits** after adding music.
+
+Running the `.bat` yourself always goes through every step (skipping what's
+already done), and doesn't update that marker.
+
 ### Updating the iPod's database
 
 Steps 5 and 6 use PodBox's own PC tools, which come with PodBox and are
@@ -289,7 +315,7 @@ save; it takes effect on the next run.
 | `bio recheck days` | `365` | Days before an artist's bio is checked again; `0` never checks. Artists who have died and bands that have split are never checked again |
 | `notes recheck days` | `365` | The same for an album's liner notes |
 | `banners` | `yes` | Fetch the banner pictures. `no` writes the text only |
-| `refresh after podbox install` | `no` | Whether installing a new PodBox build also fetches photos, bios and notes and updates the database and art cache, as running the `.bat` does. `no` does that only when there is new music or the database was rebuilt |
+| `refresh after podbox install` | `no` | Whether the PodBox install script runs the `.bat` after every install. `no` runs it only when there is new music or the database was rebuilt (see **Running it when you install PodBox**) |
 | `discogs token` | empty | Your Discogs personal token, an extra source for both |
 | `deepl key` | empty | Your DeepL key, to translate bios and notes for artists who don't work in English (see **Translation**) |
 
